@@ -1,0 +1,5 @@
+name: openvox_tune
+
+# Standalone Bolt project for developing/testing this module directly.
+# Run from this directory:
+#   bolt plan run openvox_tune::tune --targets <target-or-group>

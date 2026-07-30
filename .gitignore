@@ -1,0 +1,7 @@
+bolt-debug.log
+.bundle/
+Gemfile.lock
+.vendor/
+spec/fixtures/modules/
+*.swp
+.DS_Store

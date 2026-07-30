@@ -1,0 +1,30 @@
+{
+  "name": "CHANGEME-openvox_tune",
+  "version": "0.1.0",
+  "author": "CHANGEME",
+  "summary": "Bolt plan that recommends OpenVox Server tuning settings (JRuby pool size, JVM heap, reserved code cache) based on the official tuning guide.",
+  "license": "Apache-2.0",
+  "source": "CHANGEME (e.g. https://github.com/CHANGEME/puppet-openvox_tune)",
+  "project_page": "CHANGEME",
+  "issues_url": "CHANGEME",
+  "dependencies": [],
+  "operatingsystem_support": [
+    {
+      "operatingsystem": "RedHat",
+      "operatingsystemrelease": ["9", "10"]
+    },
+    {
+      "operatingsystem": "Ubuntu",
+      "operatingsystemrelease": ["24.04"]
+    }
+  ],
+  "requirements": [
+    {
+      "name": "puppet",
+      "version_requirement": ">= 7.0.0 < 9.0.0"
+    }
+  ],
+  "tags": ["openvox", "puppetserver", "tuning", "bolt", "performance"],
+  "pdk-version": "3.x",
+  "template-url": "N/A"
+}

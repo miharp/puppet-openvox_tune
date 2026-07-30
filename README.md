@@ -51,8 +51,21 @@ point of tuning past the out-of-the-box default on larger hardware.
 - Does not check total system RAM or reserve memory for the OS/other
   services. The recommended heap must fit alongside everything else running
   on the node — verify that yourself before applying.
-- Requires Facter facts to be reachable on each target (the plan runs
-  Bolt's built-in `facts` plan first).
+- CPU count comes from this module's own `openvox_tune::cpu_count` task
+  (runs `nproc`), not the Forge `facts` module — kept deliberately
+  dependency-free. Linux targets only, matching `metadata.json`'s
+  `operatingsystem_support`.
+
+## Testing
+
+Plan tests use [`bolt_spec`](https://github.com/puppetlabs/bolt) (mocks
+`run_task`/`run_plan` calls) on top of `voxpupuli-test` for fixtures and
+`rspec` plumbing:
+
+```shell
+bundle install
+bundle exec rake spec
+```
 
 ## Publishing
 

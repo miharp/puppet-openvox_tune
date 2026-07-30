@@ -1,0 +1,5 @@
+{
+  "description": "Return the number of CPU cores available on the target. Used internally by openvox_tune::tune.",
+  "input_method": "environment",
+  "parameters": {}
+}

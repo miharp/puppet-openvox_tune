@@ -1,0 +1,22 @@
+---
+inherit_gem:
+  voxpupuli-test: rubocop.yml
+
+# In rspec-puppet the subject is the implicit catalogue; it cannot be
+# usefully named.
+RSpec/NamedSubject:
+  Enabled: false
+
+# rspec-puppet and beaker specs describe Puppet classes, which are
+# strings, not Ruby classes.
+RSpec/DescribeClass:
+  Enabled: false
+
+# "on <os>" contexts are the rspec-puppet-facts convention. 'on' must
+# be quoted: YAML 1.1 would otherwise parse it as boolean true.
+RSpec/ContextWording:
+  Prefixes:
+    - 'when'
+    - 'with'
+    - 'without'
+    - 'on'

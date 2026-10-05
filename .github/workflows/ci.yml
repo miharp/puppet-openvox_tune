@@ -1,0 +1,22 @@
+---
+name: CI
+
+on:
+  pull_request: {}
+  push:
+    branches:
+      - main
+
+concurrency:
+  group: ${{ github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  puppet:
+    name: Puppet
+    # Static checks and unit tests only: the module has no class to apply in
+    # an acceptance run yet. Switch to beaker.yml when it does.
+    uses: voxpupuli/gha-puppet/.github/workflows/basic.yml@v4

@@ -122,7 +122,8 @@ target), the keys `openvox_tune::recommend` returns, `current` (undef
 where OpenVox Server is not installed; otherwise `max-active-instances`,
 undef when unset, `effective-max-active-instances`, `jvm-min-heap-mb`,
 `jvm-heap-mb`, `reserved-code-cache-mb` and `memory-per-jruby-mb`, the
-heap per instance by the tuning guide's formula), and `matches-current`.
+heap per instance by the tuning guide's formula), `matches-current`, and
+`hiera`, the same settings as Hiera data for theforeman-puppet.
 
 #### Examples
 
@@ -144,6 +145,12 @@ bolt plan run openvox_tune::tune --targets puppet.example.com reserved_memory_mb
 bolt plan run openvox_tune::tune --targets servers use_current_memory_per_jruby=true
 ```
 
+##### Print Hiera data for servers managed by theforeman-puppet
+
+```puppet
+bolt plan run openvox_tune::tune --targets puppet.example.com hiera=true
+```
+
 #### Parameters
 
 The following parameters are available in the `openvox_tune::tune` plan:
@@ -152,6 +159,7 @@ The following parameters are available in the `openvox_tune::tune` plan:
 * [`reserved_memory_mb`](#-openvox_tune--tune--reserved_memory_mb)
 * [`memory_per_jruby_mb`](#-openvox_tune--tune--memory_per_jruby_mb)
 * [`use_current_memory_per_jruby`](#-openvox_tune--tune--use_current_memory_per_jruby)
+* [`hiera`](#-openvox_tune--tune--hiera)
 
 ##### <a name="-openvox_tune--tune--targets"></a>`targets`
 
@@ -187,6 +195,15 @@ Size each target with the heap per instance its current settings give,
 `(heap - 512) / instances`, but never less than 512 MB. Keeps a per-JRuby
 heap that was raised on purpose. Cannot be combined with
 `memory_per_jruby_mb`.
+
+Default value: `false`
+
+##### <a name="-openvox_tune--tune--hiera"></a>`hiera`
+
+Data type: `Boolean`
+
+Also print each target's settings as Hiera data for theforeman-puppet's
+`puppet` class, to paste into the data for servers that module manages.
 
 Default value: `false`
 

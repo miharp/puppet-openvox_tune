@@ -56,9 +56,53 @@ describe 'openvox_tune::tune' do
           'fits' => true,
           'current' => nil,
           'matches-current' => false,
+          'hiera' => {
+            'puppet::server_max_active_instances' => 7,
+            'puppet::server_jvm_min_heap_size' => '4096m',
+            'puppet::server_jvm_max_heap_size' => '4096m',
+            'puppet::server_jvm_extra_args' => [
+              '-Djruby.logger.class=com.puppetlabs.jruby_utils.jruby.Slf4jLogger',
+              '-XX:ReservedCodeCacheSize=1024m',
+            ],
+          },
         },
       ],
     )
+  end
+
+  context 'with hiera' do
+    let(:hiera_header) { '# Hiera for theforeman-puppet. Setting server_jvm_extra_args replaces the module\'s own' }
+
+    it 'prints the settings as Hiera data for theforeman-puppet' do
+      expect_task('openvox_tune::host_resources')
+        .with_targets('puppet.example.com')
+        .always_return(host_resources(8, 16_000))
+      [
+        hiera_header,
+        '# -Djruby.logger.class=com.puppetlabs.jruby_utils.jruby.Slf4jLogger, so it is repeated here; ' \
+        'add any other arguments you pass.',
+        'puppet::server_max_active_instances: 7',
+        'puppet::server_jvm_min_heap_size: 4096m',
+        'puppet::server_jvm_max_heap_size: 4096m',
+        'puppet::server_jvm_extra_args:',
+        "  - '-Djruby.logger.class=com.puppetlabs.jruby_utils.jruby.Slf4jLogger'",
+        "  - '-XX:ReservedCodeCacheSize=1024m'",
+      ].each { |line| expect_out_message.with_params(line) }
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com', 'hiera' => true)
+      expect(result).to be_ok
+    end
+
+    it 'leaves the Hiera data out of the output by default' do
+      expect_task('openvox_tune::host_resources')
+        .with_targets('puppet.example.com')
+        .always_return(host_resources(8, 16_000))
+      expect_out_message.with_params(hiera_header).not_be_called
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com')
+      expect(result).to be_ok
+      expect(result.value.first['hiera']['puppet::server_max_active_instances']).to eq(7)
+    end
   end
 
   context 'with OpenVox Server installed' do

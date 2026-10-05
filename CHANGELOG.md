@@ -19,9 +19,11 @@ Notable changes to openvox_tune are recorded here. The format follows
   settings beside the recommendation and says when they already match. The
   heap per JRuby instance is the tuning guide's 512 MB, or
   `memory_per_jruby_mb`, or what the current settings give
-  (`use_current_memory_per_jruby`). It warns when a host is too small for one
-  instance, and notes OpenVoxDB or PostgreSQL running on the same host.
-  Advisory only; it changes nothing on the targets.
+  (`use_current_memory_per_jruby`). With `hiera=true` it also prints the
+  settings as Hiera data for theforeman-puppet's `puppet` class. It warns
+  when a host is too small for one instance, and notes OpenVoxDB or
+  PostgreSQL running on the same host. Advisory only; it changes nothing on
+  the targets.
 - The `openvox_tune::recommend` function, which does the sizing for given
   CPUs, memory, reserve and heap per JRuby instance.
 - The `openvox_tune::host_resources` task, which the plan uses to read the

@@ -29,7 +29,8 @@
 # where OpenVox Server is not installed; otherwise `max-active-instances`,
 # undef when unset, `effective-max-active-instances`, `jvm-min-heap-mb`,
 # `jvm-heap-mb`, `reserved-code-cache-mb` and `memory-per-jruby-mb`, the
-# heap per instance by the tuning guide's formula), and `matches-current`.
+# heap per instance by the tuning guide's formula), `matches-current`, and
+# `hiera`, the same settings as Hiera data for theforeman-puppet.
 #
 # @param targets
 #   The OpenVox Server node(s) to inspect.
@@ -50,6 +51,10 @@
 #   heap that was raised on purpose. Cannot be combined with
 #   `memory_per_jruby_mb`.
 #
+# @param hiera
+#   Also print each target's settings as Hiera data for theforeman-puppet's
+#   `puppet` class, to paste into the data for servers that module manages.
+#
 # @example Recommend settings for a server
 #   bolt plan run openvox_tune::tune --targets puppet.example.com
 #
@@ -58,12 +63,20 @@
 #
 # @example Keep the heap per JRuby instance the servers have now
 #   bolt plan run openvox_tune::tune --targets servers use_current_memory_per_jruby=true
+#
+# @example Print Hiera data for servers managed by theforeman-puppet
+#   bolt plan run openvox_tune::tune --targets puppet.example.com hiera=true
 plan openvox_tune::tune(
   TargetSpec             $targets,
   Optional[Integer[0]]   $reserved_memory_mb           = undef,
   Optional[Integer[256]] $memory_per_jruby_mb          = undef,
   Boolean                $use_current_memory_per_jruby = false,
+  Boolean                $hiera                        = false,
 ) {
+  # theforeman-puppet passes -Djruby.logger.class itself only while
+  # server_jvm_extra_args is unset, so the Hiera data has to repeat it.
+  $jruby_logger_arg = '-Djruby.logger.class=com.puppetlabs.jruby_utils.jruby.Slf4jLogger'
+
   if $memory_per_jruby_mb =~ Integer and $use_current_memory_per_jruby {
     fail_plan('Pass memory_per_jruby_mb or use_current_memory_per_jruby, not both.')
   }
@@ -121,6 +134,15 @@ plan openvox_tune::tune(
     } + $settings + {
       'current'         => $current,
       'matches-current' => $matches_current,
+      'hiera'           => {
+        'puppet::server_max_active_instances' => $settings['max-active-instances'],
+        'puppet::server_jvm_min_heap_size'    => "${settings['jvm-heap-mb']}m",
+        'puppet::server_jvm_max_heap_size'    => "${settings['jvm-heap-mb']}m",
+        'puppet::server_jvm_extra_args'       => [
+          $jruby_logger_arg,
+          "-XX:ReservedCodeCacheSize=${settings['reserved-code-cache-mb']}m",
+        ],
+      },
     }
     $recommendation
   }
@@ -164,6 +186,19 @@ plan openvox_tune::tune(
 
     out::message("jruby-puppet.max-active-instances: ${r['max-active-instances']}")
     out::message("JAVA_ARGS: -Xms${heap}m -Xmx${heap}m -XX:ReservedCodeCacheSize=${code_cache}m")
+
+    if $hiera {
+      $data = $r['hiera']
+      out::message("# Hiera for theforeman-puppet. Setting server_jvm_extra_args replaces the module's own")
+      out::message("# ${jruby_logger_arg}, so it is repeated here; add any other arguments you pass.")
+      out::message("puppet::server_max_active_instances: ${data['puppet::server_max_active_instances']}")
+      out::message("puppet::server_jvm_min_heap_size: ${data['puppet::server_jvm_min_heap_size']}")
+      out::message("puppet::server_jvm_max_heap_size: ${data['puppet::server_jvm_max_heap_size']}")
+      out::message('puppet::server_jvm_extra_args:')
+      $data['puppet::server_jvm_extra_args'].each |$arg| {
+        out::message("  - '${arg}'")
+      }
+    }
     out::message('')
   }
 

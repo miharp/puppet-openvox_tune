@@ -1,30 +1,76 @@
 {
-  "name": "CHANGEME-openvox_tune",
+  "name": "miharp-openvox_tune",
   "version": "0.1.0",
-  "author": "CHANGEME",
-  "summary": "Bolt plan that recommends OpenVox Server tuning settings (JRuby pool size, JVM heap, reserved code cache) based on the official tuning guide.",
+  "author": "Mike Harp",
+  "summary": "Recommends OpenVox Server tuning settings (JRuby pool size, JVM heap, reserved code cache) from the OpenVox Server tuning guide",
   "license": "Apache-2.0",
-  "source": "CHANGEME (e.g. https://github.com/CHANGEME/puppet-openvox_tune)",
-  "project_page": "CHANGEME",
-  "issues_url": "CHANGEME",
+  "source": "https://github.com/miharp/puppet-openvox_tune",
+  "project_page": "https://github.com/miharp/puppet-openvox_tune",
+  "issues_url": "https://github.com/miharp/puppet-openvox_tune/issues",
+  "tags": [
+    "openvox",
+    "puppetserver",
+    "tuning",
+    "performance",
+    "bolt"
+  ],
   "dependencies": [],
   "operatingsystem_support": [
     {
-      "operatingsystem": "RedHat",
-      "operatingsystemrelease": ["9", "10"]
+      "operatingsystem": "Debian",
+      "operatingsystemrelease": [
+        "12",
+        "13"
+      ]
     },
     {
       "operatingsystem": "Ubuntu",
-      "operatingsystemrelease": ["24.04"]
+      "operatingsystemrelease": [
+        "22.04",
+        "24.04"
+      ]
+    },
+    {
+      "operatingsystem": "RedHat",
+      "operatingsystemrelease": [
+        "8",
+        "9",
+        "10"
+      ]
+    },
+    {
+      "operatingsystem": "Rocky",
+      "operatingsystemrelease": [
+        "8",
+        "9",
+        "10"
+      ]
+    },
+    {
+      "operatingsystem": "AlmaLinux",
+      "operatingsystemrelease": [
+        "8",
+        "9",
+        "10"
+      ]
+    },
+    {
+      "operatingsystem": "OracleLinux",
+      "operatingsystemrelease": [
+        "8",
+        "9",
+        "10"
+      ]
     }
   ],
   "requirements": [
     {
-      "name": "puppet",
-      "version_requirement": ">= 7.0.0 < 9.0.0"
+      "name": "openvox",
+      "version_requirement": ">= 8.0.0 < 9.0.0"
+    },
+    {
+      "name": "openbolt",
+      "version_requirement": ">= 5.0.0 < 6.0.0"
     }
-  ],
-  "tags": ["openvox", "puppetserver", "tuning", "bolt", "performance"],
-  "pdk-version": "3.x",
-  "template-url": "N/A"
+  ]
 }

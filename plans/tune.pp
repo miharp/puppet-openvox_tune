@@ -10,16 +10,19 @@
 # CPU count is gathered via this module's own `cpu_count` task rather than
 # the Forge `facts` module, so the module has no external dependencies.
 #
-# Puppet Server's built-in default for max-active-instances is already
+# OpenVox Server's built-in default for max-active-instances is already
 # `num-cpus - 1` (clamped to a max of 4) as a conservative, unsized default.
 # This plan recommends the same `num-cpus - 1` starting point without the
 # cap at 4, on the assumption that you will also size the heap accordingly
 # (which is the point of tuning past the conservative default).
 #
-# @param targets
-#   The Puppet Server node(s) to inspect.
+# The plan returns one hash per target with `target`, `cpus`,
+# `max-active-instances`, `jvm-heap-mb` and `reserved-code-cache-mb`.
 #
-# @example Tune the primary master
+# @param targets
+#   The OpenVox Server node(s) to inspect.
+#
+# @example Recommend settings for a server
 #   bolt plan run openvox_tune::tune --targets puppet.example.com
 plan openvox_tune::tune(
   TargetSpec $targets,

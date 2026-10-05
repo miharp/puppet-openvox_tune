@@ -1,9 +1,11 @@
+# frozen_string_literal: true
+
 require 'spec_helper'
 
 describe 'openvox_tune::tune' do
   include BoltSpec::Plans
 
-  before(:each) do
+  before do
     allow_out_message
   end
 
@@ -14,15 +16,17 @@ describe 'openvox_tune::tune' do
 
     result = run_plan('openvox_tune::tune', 'targets' => 'small.example.com')
     expect(result).to be_ok
-    expect(result.value).to eq([
-      {
-        'target'                 => 'small.example.com',
-        'cpus'                   => 1,
-        'max-active-instances'   => 1,
-        'jvm-heap-mb'            => 1024,
-        'reserved-code-cache-mb' => 512,
-      },
-    ])
+    expect(result.value).to eq(
+      [
+        {
+          'target' => 'small.example.com',
+          'cpus' => 1,
+          'max-active-instances' => 1,
+          'jvm-heap-mb' => 1024,
+          'reserved-code-cache-mb' => 512,
+        },
+      ],
+    )
   end
 
   it 'recommends num-cpus - 1 instances and matching heap for a mid-size target' do
@@ -32,15 +36,17 @@ describe 'openvox_tune::tune' do
 
     result = run_plan('openvox_tune::tune', 'targets' => 'medium.example.com')
     expect(result).to be_ok
-    expect(result.value).to eq([
-      {
-        'target'                 => 'medium.example.com',
-        'cpus'                   => 8,
-        'max-active-instances'   => 7,
-        'jvm-heap-mb'            => 4096,
-        'reserved-code-cache-mb' => 1024,
-      },
-    ])
+    expect(result.value).to eq(
+      [
+        {
+          'target' => 'medium.example.com',
+          'cpus' => 8,
+          'max-active-instances' => 7,
+          'jvm-heap-mb' => 4096,
+          'reserved-code-cache-mb' => 1024,
+        },
+      ],
+    )
   end
 
   it 'recommends the largest reserved code cache tier above 12 instances' do
@@ -50,20 +56,22 @@ describe 'openvox_tune::tune' do
 
     result = run_plan('openvox_tune::tune', 'targets' => 'busy.example.com')
     expect(result).to be_ok
-    expect(result.value).to eq([
-      {
-        'target'                 => 'busy.example.com',
-        'cpus'                   => 14,
-        'max-active-instances'   => 13,
-        'jvm-heap-mb'            => 7168,
-        'reserved-code-cache-mb' => 2048,
-      },
-    ])
+    expect(result.value).to eq(
+      [
+        {
+          'target' => 'busy.example.com',
+          'cpus' => 14,
+          'max-active-instances' => 13,
+          'jvm-heap-mb' => 7168,
+          'reserved-code-cache-mb' => 2048,
+        },
+      ],
+    )
   end
 
   it 'reports settings for every target in one run' do
     expect_task('openvox_tune::cpu_count').return_for_targets(
-      'small.example.com'  => { 'count' => 1 },
+      'small.example.com' => { 'count' => 1 },
       'medium.example.com' => { 'count' => 8 },
     )
 

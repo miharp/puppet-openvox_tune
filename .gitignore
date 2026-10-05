@@ -1,7 +1,21 @@
-bolt-debug.log
-.bundle/
-Gemfile.lock
-.vendor/
-spec/fixtures/modules/
-*.swp
+/.bundle/
+/Gemfile.lock
+/pkg/
+/spec/fixtures/manifests/
+/spec/fixtures/modules/
+/vendor/
+/.vendor/
+/coverage/
+/log/
+/junit/
+/.yardoc/
+/doc/
 .DS_Store
+*.swp
+
+# Bolt, when run from this directory (bolt-project.yaml)
+/bolt-debug.log
+/.modules/
+/.resource_types/
+/.task_cache/
+/.rerun.json

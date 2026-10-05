@@ -21,7 +21,10 @@
 # Where OpenVox Server is installed, the plan also shows the current
 # settings: the heap and code cache from JAVA_ARGS in the defaults file, and
 # max-active-instances from conf.d (or the default it gets when unset), and
-# says when they already match.
+# says when they already match. It also shows environment_timeout, as the
+# server resolves it from puppet.conf, and max-requests-per-instance,
+# max-queued-requests and multithreaded where they are set, and points out
+# an environment_timeout of 0, which makes every compile read the code again.
 #
 # Run it against the whole deployment. A host whose CA service is disabled
 # in services.d/ca.cfg is a compiler and is sized like any server. When the
@@ -35,8 +38,10 @@
 # target), the keys `openvox_tune::recommend` returns, `current` (undef
 # where OpenVox Server is not installed; otherwise `max-active-instances`,
 # undef when unset, `effective-max-active-instances`, `jvm-min-heap-mb`,
-# `jvm-heap-mb`, `reserved-code-cache-mb` and `memory-per-jruby-mb`, the
-# heap per instance by the tuning guide's formula), `matches-current`, and
+# `jvm-heap-mb`, `reserved-code-cache-mb`, `memory-per-jruby-mb`, the
+# heap per instance by the tuning guide's formula, `environment-timeout`, in
+# seconds or `unlimited`, `max-requests-per-instance`, `max-queued-requests`
+# and `multithreaded`, each undef when not known or not set), `matches-current`, and
 # `hiera`, the same settings as Hiera data for theforeman-puppet.
 #
 # @param targets
@@ -126,6 +131,10 @@ plan openvox_tune::tune(
           undef   => undef,
           default => ($server['xmx_mb'] - 512) / $instances,
         },
+        'environment-timeout'            => $server['environment_timeout'],
+        'max-requests-per-instance'      => $server['max_requests_per_instance'],
+        'max-queued-requests'            => $server['max_queued_requests'],
+        'multithreaded'                  => $server['multithreaded'],
       }
     }
 
@@ -178,9 +187,26 @@ plan openvox_tune::tune(
     $available = $r['available-memory-mb']
     $others = $r['other-services'].join(', ')
     $current_text = openvox_tune::describe_current($r['current'])
+    $options_text = openvox_tune::describe_options($r['current'])
 
     out::message("# ${r['target']}: ${r['cpus']} CPU(s), ${r['memory-mb']} MB memory, ${r['reserved-memory-mb']} MB reserved")
     out::message("# Current: ${current_text}")
+    if !empty($options_text) {
+      out::message("# Other settings: ${options_text}")
+    }
+    if $r['current'] =~ Hash and $r['current']['environment-timeout'] == 0 {
+      out::message(@("MSG"/L))
+        # Note: environment_timeout is 0, so every catalog compile reads the environment's \
+        code from disk again. Set it to unlimited in puppet.conf's [server] section and \
+        flush the cache after each code deploy (DELETE /puppet-admin-api/v1/environment-cache).
+        |- MSG
+    }
+    if $r['current'] =~ Hash and $r['current']['multithreaded'] == true {
+      out::message(@("MSG"/L))
+        # Note: multithreaded is on, so all instances share one JRuby; this sizing \
+        assumes one JRuby per instance and overstates the heap.
+        |- MSG
+    }
     if $r['matches-current'] {
       out::message('# The current settings already match the recommendation.')
     }

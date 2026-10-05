@@ -16,7 +16,10 @@ Notable changes to openvox_tune are recorded here. The format follows
   other services (`reserved_memory_mb`, a quarter of memory by default) and
   pass the memory check OpenVox Server makes at startup (memory at least
   1.1 times the heap). Where OpenVox Server is installed it shows the current
-  settings beside the recommendation and says when they already match. The
+  settings beside the recommendation and says when they already match, along
+  with `environment_timeout`, pointing out the default of 0, and the
+  `max-requests-per-instance`, `max-queued-requests` and `multithreaded`
+  settings that are set. The
   heap per JRuby instance is the tuning guide's 512 MB, or
   `memory_per_jruby_mb`, or what the current settings give
   (`use_current_memory_per_jruby`). Run against a deployment with
@@ -32,7 +35,8 @@ Notable changes to openvox_tune are recorded here. The format follows
 - The `openvox_tune::host_resources` task, which the plan uses to read the
   CPUs and memory (capped by a container's CPU quota and memory limit), the
   OpenVoxDB and PostgreSQL services running on a target, and OpenVox
-  Server's current heap, code cache and `max-active-instances` and whether
-  its CA service is enabled.
+  Server's current heap, code cache, JRuby pool settings and
+  `environment_timeout` (resolved as the server resolves it) and whether its
+  CA service is enabled.
 
 [Unreleased]: https://github.com/miharp/puppet-openvox_tune/commits/main

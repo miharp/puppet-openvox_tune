@@ -9,15 +9,19 @@ describe 'openvox_tune::tune' do
     { 'cpus' => cpus, 'memory_mb' => memory_mb, 'other_services' => other_services, 'puppetserver' => puppetserver }
   end
 
-  def puppetserver(xmx_mb: 2048, xms_mb: xmx_mb, code_cache_mb: nil, max_active_instances: nil, ca_enabled: true)
+  def puppetserver(xmx_mb: 2048, xms_mb: xmx_mb, code_cache_mb: nil, max_active_instances: nil, ca_enabled: true, **options)
     {
       'defaults_file' => '/etc/sysconfig/puppetserver',
       'xms_mb' => xms_mb,
       'xmx_mb' => xmx_mb,
       'code_cache_mb' => code_cache_mb,
-      'max_active_instances' => max_active_instances,
       'ca_enabled' => ca_enabled,
-    }
+      'max_active_instances' => max_active_instances,
+      'max_requests_per_instance' => nil,
+      'max_queued_requests' => nil,
+      'multithreaded' => nil,
+      'environment_timeout' => 0,
+    }.merge(options.transform_keys(&:to_s))
   end
 
   let(:note) do
@@ -183,6 +187,10 @@ describe 'openvox_tune::tune' do
           'jvm-heap-mb' => 2048,
           'reserved-code-cache-mb' => nil,
           'memory-per-jruby-mb' => 384,
+          'environment-timeout' => 0,
+          'max-requests-per-instance' => nil,
+          'max-queued-requests' => nil,
+          'multithreaded' => nil,
         },
       )
     end
@@ -206,6 +214,64 @@ describe 'openvox_tune::tune' do
       result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com')
       expect(result).to be_ok
       expect(result.value.first['matches-current']).to be(false)
+    end
+  end
+
+  context 'with the other settings' do
+    let(:timeout_note) do
+      "# Note: environment_timeout is 0, so every catalog compile reads the environment's " \
+        "code from disk again. Set it to unlimited in puppet.conf's [server] section and " \
+        'flush the cache after each code deploy (DELETE /puppet-admin-api/v1/environment-cache).'
+    end
+    let(:multithreaded_note) do
+      '# Note: multithreaded is on, so all instances share one JRuby; this sizing ' \
+        'assumes one JRuby per instance and overstates the heap.'
+    end
+
+    it 'shows environment_timeout and points out 0' do
+      expect_task('openvox_tune::host_resources')
+        .with_targets('puppet.example.com')
+        .always_return(host_resources(8, 16_000, puppetserver: puppetserver))
+      expect_out_message.with_params('# Other settings: environment_timeout 0')
+      expect_out_message.with_params(timeout_note)
+      expect_out_message.with_params(multithreaded_note).not_be_called
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com')
+      expect(result).to be_ok
+    end
+
+    it 'shows the JRuby options that are set, without the note when environment_timeout is cached' do
+      server = puppetserver(environment_timeout: 'unlimited', max_requests_per_instance: 100_000)
+      expect_task('openvox_tune::host_resources')
+        .with_targets('puppet.example.com')
+        .always_return(host_resources(8, 16_000, puppetserver: server))
+      expect_out_message.with_params('# Other settings: environment_timeout unlimited, max-requests-per-instance 100000')
+      expect_out_message.with_params(timeout_note).not_be_called
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com')
+      expect(result).to be_ok
+      expect(result.value.first['current']).to include('environment-timeout' => 'unlimited', 'max-requests-per-instance' => 100_000)
+    end
+
+    it 'warns that the sizing overstates the heap in multithreaded mode' do
+      expect_task('openvox_tune::host_resources')
+        .with_targets('puppet.example.com')
+        .always_return(host_resources(8, 16_000, puppetserver: puppetserver(environment_timeout: 300, multithreaded: true)))
+      expect_out_message.with_params('# Other settings: environment_timeout 300s, multithreaded')
+      expect_out_message.with_params(multithreaded_note)
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com')
+      expect(result).to be_ok
+    end
+
+    it 'prints no other settings where OpenVox Server is not installed' do
+      expect_task('openvox_tune::host_resources')
+        .with_targets('new.example.com')
+        .always_return(host_resources(8, 16_000))
+      expect_out_message.with_params(timeout_note).not_be_called
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'new.example.com')
+      expect(result).to be_ok
     end
   end
 

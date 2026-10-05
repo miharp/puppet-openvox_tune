@@ -73,21 +73,62 @@ if [ -r "$defaults" ]; then
     esac
   done
 
-  # conf.d is HOCON, so read it with the hocon gem the agent ships rather
-  # than with grep.
-  max_active=''
+  # The rest needs the Ruby the agent ships: the jruby-puppet settings from
+  # conf.d, which is HOCON, and environment_timeout from puppet.conf.
+  unknown='"max_active_instances":null,"max_requests_per_instance":null,"max_queued_requests":null,"multithreaded":null,"environment_timeout":null'
+  server_settings=$unknown
   ruby=/opt/puppetlabs/puppet/bin/ruby
-  confd=/etc/puppetlabs/puppetserver/conf.d
-  if [ -x "$ruby" ] && [ -d "$confd" ]; then
-    max_active=$("$ruby" -e '
-      require "hocon"
-      value = nil
-      Dir.glob(File.join(ARGV[0], "*.conf")).sort.each do |file|
-        found = (Hocon.load(file).dig("jruby-puppet", "max-active-instances") rescue nil)
-        value = found unless found.nil?
-      end
-      print Integer(value) unless value.nil?
-    ' "$confd" 2>/dev/null) || max_active=''
+  if [ -x "$ruby" ]; then
+    server_settings=$("$ruby" - /etc/puppetlabs/puppetserver/conf.d 2>/dev/null <<'RUBY'
+require 'json'
+
+settings = {
+  'max_active_instances' => nil, 'max_requests_per_instance' => nil,
+  'max_queued_requests' => nil, 'multithreaded' => nil, 'environment_timeout' => nil
+}
+
+# A later conf.d file wins, and one that does not parse is skipped.
+begin
+  require 'hocon'
+  keys = {
+    'max_active_instances' => 'max-active-instances',
+    'max_requests_per_instance' => 'max-requests-per-instance',
+    'max_queued_requests' => 'max-queued-requests',
+    'multithreaded' => 'multithreaded'
+  }
+  Dir.glob(File.join(ARGV[0], '*.conf')).sort.each do |file|
+    jruby = (Hocon.load(file)['jruby-puppet'] rescue nil)
+    next unless jruby.is_a?(Hash)
+    keys.each { |name, key| settings[name] = jruby[key] if jruby.key?(key) }
+  end
+  %w[max_active_instances max_requests_per_instance max_queued_requests].each do |name|
+    settings[name] = (Integer(settings[name]) rescue nil) unless settings[name].nil?
+  end
+  settings['multithreaded'] = [true, 'true'].include?(settings['multithreaded']) unless settings['multithreaded'].nil?
+rescue LoadError
+  nil
+end
+
+# environment_timeout as OpenVox Server resolves it, in the server run mode
+# (puppet/server/puppet_config.rb), so a [server] value in puppet.conf
+# counts. `puppet config print --section server` misses it for this setting.
+begin
+  require 'puppet'
+  Puppet.settings.preferred_run_mode = :server
+  Puppet.initialize_settings([])
+  Puppet.settings.initialize_app_defaults(
+    Puppet::Settings.app_defaults_for_run_mode(Puppet::Util::RunMode[:server]).merge(name: 'server'),
+  )
+  timeout = Puppet[:environment_timeout]
+  settings['environment_timeout'] = timeout.to_f.infinite? ? 'unlimited' : Integer(timeout)
+rescue StandardError, LoadError
+  nil
+end
+
+print JSON.generate(settings)[1..-2]
+RUBY
+    ) || server_settings=$unknown
+    [ -n "$server_settings" ] || server_settings=$unknown
   fi
 
   # Whether this host is a CA or a compiler. Compilers comment out the CA
@@ -101,9 +142,9 @@ if [ -r "$defaults" ]; then
     ca_enabled=false
   fi
 
-  puppetserver=$(printf '{"defaults_file":"%s","xms_mb":%s,"xmx_mb":%s,"code_cache_mb":%s,"max_active_instances":%s,"ca_enabled":%s}' \
-    "$defaults" "$(json_number "$xms")" "$(json_number "$xmx")" "$(json_number "$code_cache")" "$(json_number "$max_active")" \
-    "$(json_number "$ca_enabled")")
+  puppetserver=$(printf '{"defaults_file":"%s","xms_mb":%s,"xmx_mb":%s,"code_cache_mb":%s,"ca_enabled":%s,%s}' \
+    "$defaults" "$(json_number "$xms")" "$(json_number "$xmx")" "$(json_number "$code_cache")" \
+    "$(json_number "$ca_enabled")" "$server_settings")
 fi
 
 printf '{"cpus":%d,"memory_mb":%d,"other_services":[%s],"puppetserver":%s}\n' \

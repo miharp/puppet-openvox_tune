@@ -57,6 +57,18 @@ not set. The heap per instance is worked out with the tuning guide's
 formula, `(heap - 512 MB) / instances`. When the current settings already
 match, the plan says so.
 
+An `Other settings:` line shows `environment_timeout`, and
+`max-requests-per-instance`, `max-queued-requests` and `multithreaded`
+where they are set. An `environment_timeout` of 0, the default, makes every
+catalog compile read the environment's code from disk again, so the plan
+points it out: set it to `unlimited` in `puppet.conf`'s `[server]` section
+and flush the cache after each code deploy with the `environment-cache` API.
+The plan reads `environment_timeout` the way OpenVox Server does;
+`puppet config print environment_timeout --section server` ignores a value
+in `[server]` and reports `[main]`'s or the default. With `multithreaded`
+on, all instances share one JRuby, and the plan's sizing, which assumes one
+JRuby per instance, overstates the heap.
+
 By default a quarter of each target's memory is left for the operating
 system. When OpenVoxDB, PostgreSQL or anything else large shares the host,
 reserve room for it as well; the plan points this out when it finds
@@ -165,6 +177,8 @@ heap is lowered.
 - It does not know how much memory other services need. It reserves a
   quarter of memory for the operating system unless you pass
   `reserved_memory_mb`.
+- It reads `environment_timeout` from `puppet.conf` only; an environment's
+  `environment.conf` can override it for that environment.
 - CPUs and memory come from this module's own `openvox_tune::host_resources`
   task (`nproc` and `/proc/meminfo`, capped by a container's CPU quota and
   memory limit), not the Forge `facts` module, so the module has no

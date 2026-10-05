@@ -20,3 +20,48 @@ jobs:
     # Static checks and unit tests only: the module has no class to apply in
     # an acceptance run yet. Switch to beaker.yml when it does.
     uses: voxpupuli/gha-puppet/.github/workflows/basic.yml@v4
+
+  containers:
+    # The host_resources task, and the plan through Bolt's Docker transport,
+    # against real openvox-server packages (installed, not started). The unit
+    # tests above give the plan made-up task results.
+    name: Containers (${{ matrix.name }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 24.04, OpenVox 8
+            dockerfile: deb
+            base: ubuntu:24.04
+            release: https://apt.voxpupuli.org/openvox8-release-ubuntu24.04.deb
+          - name: Ubuntu 24.04, OpenVox 9
+            dockerfile: deb
+            base: ubuntu:24.04
+            release: https://apt.voxpupuli.org/openvox9-release-ubuntu24.04.deb
+          - name: Rocky 9, OpenVox 8
+            dockerfile: rpm
+            base: rockylinux:9
+            release: https://yum.voxpupuli.org/openvox8-release-el-9.noarch.rpm
+          - name: Rocky 9, OpenVox 9
+            dockerfile: rpm
+            base: rockylinux:9
+            release: https://yum.voxpupuli.org/openvox9-release-el-9.noarch.rpm
+    env:
+      BUNDLE_WITHOUT: development:system_tests:release
+      CONTAINER_IMAGE: openvox-tune-test
+      BASE_IMAGE: ${{ matrix.base }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.2'
+          bundler-cache: true
+      - name: Build the test image
+        run: |
+          docker build -t "$CONTAINER_IMAGE" \
+            --build-arg BASE="${{ matrix.base }}" --build-arg RELEASE="${{ matrix.release }}" \
+            -f spec/container/Dockerfile.${{ matrix.dockerfile }} spec/container
+          docker pull -q "$BASE_IMAGE"
+      - name: Run the container specs
+        run: bundle exec rspec spec/container

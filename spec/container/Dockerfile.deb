@@ -1,0 +1,11 @@
+# openvox-server installed, not started, for spec/container.
+ARG BASE=ubuntu:24.04
+FROM ${BASE}
+ARG RELEASE=https://apt.voxpupuli.org/openvox8-release-ubuntu24.04.deb
+RUN apt-get update -qq \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq curl ca-certificates >/dev/null \
+ && curl -sSfo /tmp/release.deb "${RELEASE}" \
+ && dpkg -i /tmp/release.deb >/dev/null \
+ && apt-get update -qq \
+ && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq openvox-server >/dev/null \
+ && rm -rf /var/lib/apt/lists/* /tmp/release.deb

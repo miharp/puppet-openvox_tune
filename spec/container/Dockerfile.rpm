@@ -1,0 +1,7 @@
+# openvox-server installed, not started, for spec/container.
+ARG BASE=rockylinux:9
+FROM ${BASE}
+ARG RELEASE=https://yum.voxpupuli.org/openvox9-release-el-9.noarch.rpm
+RUN dnf install -y -q "${RELEASE}" >/dev/null \
+ && dnf install -y -q openvox-server >/dev/null \
+ && dnf clean all >/dev/null

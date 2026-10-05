@@ -4,19 +4,72 @@
 
 ## Table of Contents
 
+### Functions
+
+* [`openvox_tune::recommend`](#openvox_tune--recommend): Recommend OpenVox Server tuning for a host's CPUs and memory.
+
 ### Tasks
 
-* [`cpu_count`](#cpu_count): Return the number of CPU cores available on the target. Used internally by openvox_tune::tune.
+* [`host_resources`](#host_resources): Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, and any OpenVoxDB or PostgreSQL servi
 
 ### Plans
 
 * [`openvox_tune::tune`](#openvox_tune--tune): Recommend OpenVox Server tuning settings based on the official tuning guide.
 
+## Functions
+
+### <a name="openvox_tune--recommend"></a>`openvox_tune::recommend`
+
+Type: Puppet Language
+
+Starts from the OpenVox Server tuning guide: `num-cpus - 1` JRuby
+instances (at least 1), a heap of 512 MB plus 512 MB per instance, and a
+reserved code cache of 512 MB below 6 instances, 1 GB for 6 to 12, and
+2 GB above 12. It then lowers the instance count until the heap and the
+code cache fit in the memory left after the reserve for the operating
+system and other services, and the host has at least 1.1 times the heap:
+OpenVox Server refuses to start with less.
+
+#### `openvox_tune::recommend(Integer[1] $cpus, Integer[1] $memory_mb, Optional[Integer[0]] $reserved_memory_mb = undef)`
+
+Starts from the OpenVox Server tuning guide: `num-cpus - 1` JRuby
+instances (at least 1), a heap of 512 MB plus 512 MB per instance, and a
+reserved code cache of 512 MB below 6 instances, 1 GB for 6 to 12, and
+2 GB above 12. It then lowers the instance count until the heap and the
+code cache fit in the memory left after the reserve for the operating
+system and other services, and the host has at least 1.1 times the heap:
+OpenVox Server refuses to start with less.
+
+Returns: `Hash` `max-active-instances`, `jvm-heap-mb` and `reserved-code-cache-mb`;
+`reserved-memory-mb` and `available-memory-mb`, the memory the
+recommendation was sized for; `limited-by`, `cpu` or `memory`; and
+`fits`, false when even one instance needs more memory than is
+available, in which case the recommendation is for one instance anyway.
+
+##### `cpus`
+
+Data type: `Integer[1]`
+
+The CPUs available to OpenVox Server.
+
+##### `memory_mb`
+
+Data type: `Integer[1]`
+
+The memory available to OpenVox Server, in MB.
+
+##### `reserved_memory_mb`
+
+Data type: `Optional[Integer[0]]`
+
+Memory to leave for the operating system and other services, in MB.
+Defaults to a quarter of `memory_mb`.
+
 ## Tasks
 
-### <a name="cpu_count"></a>`cpu_count`
+### <a name="host_resources"></a>`host_resources`
 
-Return the number of CPU cores available on the target. Used internally by openvox_tune::tune.
+Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, and any OpenVoxDB or PostgreSQL services running there. Used internally by openvox_tune::tune.
 
 **Supports noop?** false
 
@@ -27,21 +80,24 @@ Return the number of CPU cores available on the target. Used internally by openv
 Implements the formulas from:
   https://docs.openvoxproject.org/openvox-server/latest/tuning_guide.html
 
-This plan is advisory only: it inspects CPU count on each target and prints
-recommended `jruby-puppet.max-active-instances`, JVM heap, and
+This plan is advisory only: it inspects the CPUs and memory on each target
+and prints recommended `jruby-puppet.max-active-instances`, JVM heap, and
 `-XX:ReservedCodeCacheSize` values. It does not modify any target.
 
-CPU count is gathered via this module's own `cpu_count` task rather than
-the Forge `facts` module, so the module has no external dependencies.
+CPUs and memory are gathered via this module's own `host_resources` task
+rather than the Forge `facts` module, so the module has no external
+dependencies. Inside a container they are capped by its CPU quota and
+memory limit.
 
 OpenVox Server's built-in default for max-active-instances is already
 `num-cpus - 1` (clamped to a max of 4) as a conservative, unsized default.
 This plan recommends the same `num-cpus - 1` starting point without the
-cap at 4, on the assumption that you will also size the heap accordingly
-(which is the point of tuning past the conservative default).
+cap at 4, then lowers it until the heap and code cache fit in the memory
+left after `reserved_memory_mb`. See `openvox_tune::recommend`.
 
-The plan returns one hash per target with `target`, `cpus`,
-`max-active-instances`, `jvm-heap-mb` and `reserved-code-cache-mb`.
+The plan returns one hash per target with `target`, `cpus`, `memory-mb`,
+`other-services` (OpenVoxDB and PostgreSQL services running on the
+target), and the keys `openvox_tune::recommend` returns.
 
 #### Examples
 
@@ -51,15 +107,33 @@ The plan returns one hash per target with `target`, `cpus`,
 bolt plan run openvox_tune::tune --targets puppet.example.com
 ```
 
+##### Leave 6 GB for OpenVoxDB and PostgreSQL on the same host
+
+```puppet
+bolt plan run openvox_tune::tune --targets puppet.example.com reserved_memory_mb=6144
+```
+
 #### Parameters
 
 The following parameters are available in the `openvox_tune::tune` plan:
 
 * [`targets`](#-openvox_tune--tune--targets)
+* [`reserved_memory_mb`](#-openvox_tune--tune--reserved_memory_mb)
 
 ##### <a name="-openvox_tune--tune--targets"></a>`targets`
 
 Data type: `TargetSpec`
 
 The OpenVox Server node(s) to inspect.
+
+##### <a name="-openvox_tune--tune--reserved_memory_mb"></a>`reserved_memory_mb`
+
+Data type: `Optional[Integer[0]]`
+
+Memory to leave for the operating system and other services on each
+target, in MB. Defaults to a quarter of the target's memory, which is
+meant for the operating system alone; raise it when OpenVoxDB,
+PostgreSQL or anything else large runs on the same host.
+
+Default value: `undef`
 

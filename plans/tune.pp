@@ -3,59 +3,89 @@
 # Implements the formulas from:
 #   https://docs.openvoxproject.org/openvox-server/latest/tuning_guide.html
 #
-# This plan is advisory only: it inspects CPU count on each target and prints
-# recommended `jruby-puppet.max-active-instances`, JVM heap, and
+# This plan is advisory only: it inspects the CPUs and memory on each target
+# and prints recommended `jruby-puppet.max-active-instances`, JVM heap, and
 # `-XX:ReservedCodeCacheSize` values. It does not modify any target.
 #
-# CPU count is gathered via this module's own `cpu_count` task rather than
-# the Forge `facts` module, so the module has no external dependencies.
+# CPUs and memory are gathered via this module's own `host_resources` task
+# rather than the Forge `facts` module, so the module has no external
+# dependencies. Inside a container they are capped by its CPU quota and
+# memory limit.
 #
 # OpenVox Server's built-in default for max-active-instances is already
 # `num-cpus - 1` (clamped to a max of 4) as a conservative, unsized default.
 # This plan recommends the same `num-cpus - 1` starting point without the
-# cap at 4, on the assumption that you will also size the heap accordingly
-# (which is the point of tuning past the conservative default).
+# cap at 4, then lowers it until the heap and code cache fit in the memory
+# left after `reserved_memory_mb`. See `openvox_tune::recommend`.
 #
-# The plan returns one hash per target with `target`, `cpus`,
-# `max-active-instances`, `jvm-heap-mb` and `reserved-code-cache-mb`.
+# The plan returns one hash per target with `target`, `cpus`, `memory-mb`,
+# `other-services` (OpenVoxDB and PostgreSQL services running on the
+# target), and the keys `openvox_tune::recommend` returns.
 #
 # @param targets
 #   The OpenVox Server node(s) to inspect.
 #
+# @param reserved_memory_mb
+#   Memory to leave for the operating system and other services on each
+#   target, in MB. Defaults to a quarter of the target's memory, which is
+#   meant for the operating system alone; raise it when OpenVoxDB,
+#   PostgreSQL or anything else large runs on the same host.
+#
 # @example Recommend settings for a server
 #   bolt plan run openvox_tune::tune --targets puppet.example.com
+#
+# @example Leave 6 GB for OpenVoxDB and PostgreSQL on the same host
+#   bolt plan run openvox_tune::tune --targets puppet.example.com reserved_memory_mb=6144
 plan openvox_tune::tune(
-  TargetSpec $targets,
+  TargetSpec           $targets,
+  Optional[Integer[0]] $reserved_memory_mb = undef,
 ) {
-  $results = run_task('openvox_tune::cpu_count', $targets)
+  $results = run_task('openvox_tune::host_resources', $targets)
 
   $recommendations = $results.map |$result| {
-    $cpus = $result['count']
-
-    $max_active_instances = if ($cpus - 1) >= 1 { $cpus - 1 } else { 1 }
-    $heap_mb = 512 + ($max_active_instances * 512)
-    $code_cache_mb = if $max_active_instances < 6 {
-      512
-    } elsif $max_active_instances <= 12 {
-      1024
-    } else {
-      2048
-    }
+    $host = $result.value
+    $settings = openvox_tune::recommend($host['cpus'], $host['memory_mb'], $reserved_memory_mb)
 
     $recommendation = {
-      'target'                  => $result.target.name,
-      'cpus'                    => $cpus,
-      'max-active-instances'    => $max_active_instances,
-      'jvm-heap-mb'             => $heap_mb,
-      'reserved-code-cache-mb'  => $code_cache_mb,
-    }
+      'target'         => $result.target.name,
+      'cpus'           => $host['cpus'],
+      'memory-mb'      => $host['memory_mb'],
+      'other-services' => $host['other_services'],
+    } + $settings
     $recommendation
   }
 
   $recommendations.each |$r| {
-    out::message("# ${r['target']}: ${r['cpus']} CPU(s)")
+    $heap = $r['jvm-heap-mb']
+    $code_cache = $r['reserved-code-cache-mb']
+    $needed = $heap + $code_cache
+    $available = $r['available-memory-mb']
+    $cpu_instances = max($r['cpus'] - 1, 1)
+    $others = $r['other-services'].join(', ')
+
+    out::message("# ${r['target']}: ${r['cpus']} CPU(s), ${r['memory-mb']} MB memory, ${r['reserved-memory-mb']} MB reserved")
+
+    if !$r['fits'] {
+      out::message(@("MSG"/L))
+        # Warning: one JRuby instance needs ${needed} MB of heap and code cache, \
+        but only ${available} MB is left after the reserve.
+        |- MSG
+    } elsif $r['limited-by'] == 'memory' {
+      out::message(@("MSG"/L))
+        # Limited by memory: the CPUs allow ${cpu_instances} instances; \
+        ${r['max-active-instances']} fit in the ${available} MB left after the reserve.
+        |- MSG
+    }
+
+    if !empty($r['other-services']) and $reserved_memory_mb =~ Undef {
+      out::message(@("MSG"/L))
+        # Note: this host also runs ${others}. The default reserve covers \
+        the operating system only; set reserved_memory_mb to include other services.
+        |- MSG
+    }
+
     out::message("jruby-puppet.max-active-instances: ${r['max-active-instances']}")
-    out::message("JAVA_ARGS: -Xms${r['jvm-heap-mb']}m -Xmx${r['jvm-heap-mb']}m -XX:ReservedCodeCacheSize=${r['reserved-code-cache-mb']}m")
+    out::message("JAVA_ARGS: -Xms${heap}m -Xmx${heap}m -XX:ReservedCodeCacheSize=${code_cache}m")
     out::message('')
   }
 

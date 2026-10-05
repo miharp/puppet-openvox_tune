@@ -76,6 +76,33 @@ bolt plan run openvox_tune::tune --targets puppet.example.com memory_per_jruby_m
 bolt plan run openvox_tune::tune --targets puppet.example.com use_current_memory_per_jruby=true
 ```
 
+### Servers managed by theforeman-puppet
+
+If [theforeman-puppet](https://forge.puppet.com/modules/theforeman/puppet)
+manages the server, changes made by hand are reverted on its next run. Pass
+`hiera=true` to also get the settings as Hiera data for that module's
+`puppet` class, to paste into the server's node data:
+
+```shell
+bolt plan run openvox_tune::tune --targets puppet.example.com hiera=true
+```
+
+```yaml
+# Hiera for theforeman-puppet. Setting server_jvm_extra_args replaces the module's own
+# -Djruby.logger.class=com.puppetlabs.jruby_utils.jruby.Slf4jLogger, so it is repeated here; add any other arguments you pass.
+puppet::server_max_active_instances: 7
+puppet::server_jvm_min_heap_size: 4096m
+puppet::server_jvm_max_heap_size: 4096m
+puppet::server_jvm_extra_args:
+  - '-Djruby.logger.class=com.puppetlabs.jruby_utils.jruby.Slf4jLogger'
+  - '-XX:ReservedCodeCacheSize=1024m'
+```
+
+theforeman-puppet adds the `-Djruby.logger.class` argument only while
+`puppet::server_jvm_extra_args` is unset, so the data repeats it. If you
+already set `puppet::server_jvm_extra_args`, merge the code cache argument
+into your list instead.
+
 The plan also returns the values for each target, for use from another plan.
 See [REFERENCE.md](https://github.com/miharp/puppet-openvox_tune/blob/main/REFERENCE.md)
 for the plan's parameters and return value, and for the

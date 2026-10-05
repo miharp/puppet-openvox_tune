@@ -196,6 +196,23 @@ bundle install
 bundle exec rake validate lint check rubocop parallel_spec
 ```
 
+Those tests give the plan made-up task results. The specs in
+`spec/container` run the `host_resources` task, and the plan through Bolt's
+Docker transport, against containers with real `openvox-server` packages
+installed but not started. CI runs them on Ubuntu 24.04 and Rocky 9 with
+OpenVox 8 and 9. Locally, with Docker:
+
+```console
+docker build -t openvox-tune-test -f spec/container/Dockerfile.deb \
+  --build-arg BASE=ubuntu:24.04 \
+  --build-arg RELEASE=https://apt.voxpupuli.org/openvox8-release-ubuntu24.04.deb \
+  spec/container
+CONTAINER_IMAGE=openvox-tune-test BASE_IMAGE=ubuntu:24.04 bundle exec rspec spec/container
+```
+
+Use `spec/container/Dockerfile.rpm` with a `rockylinux:9` base and a
+`yum.voxpupuli.org` release package for the EL side.
+
 Regenerate `REFERENCE.md` after changing plan or task documentation:
 
 ```console

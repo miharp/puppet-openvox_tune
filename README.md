@@ -44,9 +44,18 @@ Example output:
 
 ```text
 # puppet.example.com: 8 CPU(s), 15345 MB memory, 3836 MB reserved
+# Current: 4 instances (default), 2048m heap, JVM default code cache, 384 MB heap per instance
 jruby-puppet.max-active-instances: 7
 JAVA_ARGS: -Xms4096m -Xmx4096m -XX:ReservedCodeCacheSize=1024m
 ```
+
+The `Current:` line shows what OpenVox Server runs with now: the heap and
+code cache from `JAVA_ARGS` in `/etc/sysconfig/puppetserver` or
+`/etc/default/puppetserver`, and `max-active-instances` from
+`/etc/puppetlabs/puppetserver/conf.d`, or the default it gets when that is
+not set. The heap per instance is worked out with the tuning guide's
+formula, `(heap - 512 MB) / instances`. When the current settings already
+match, the plan says so.
 
 By default a quarter of each target's memory is left for the operating
 system. When OpenVoxDB, PostgreSQL or anything else large shares the host,
@@ -55,6 +64,16 @@ OpenVoxDB or PostgreSQL running:
 
 ```shell
 bolt plan run openvox_tune::tune --targets puppet.example.com reserved_memory_mb=6144
+```
+
+Each JRuby instance is given the tuning guide's 512 MB of heap. Code with
+many modules or a lot of Hiera data can need more; set it with
+`memory_per_jruby_mb`, or keep what the servers have now with
+`use_current_memory_per_jruby` (never less than 512 MB):
+
+```shell
+bolt plan run openvox_tune::tune --targets puppet.example.com memory_per_jruby_mb=1024
+bolt plan run openvox_tune::tune --targets puppet.example.com use_current_memory_per_jruby=true
 ```
 
 The plan also returns the values for each target, for use from another plan.

@@ -5,8 +5,18 @@ require 'spec_helper'
 describe 'openvox_tune::tune' do
   include BoltSpec::Plans
 
-  def host_resources(cpus, memory_mb, other_services = [])
-    { 'cpus' => cpus, 'memory_mb' => memory_mb, 'other_services' => other_services }
+  def host_resources(cpus, memory_mb, other_services = [], puppetserver: nil)
+    { 'cpus' => cpus, 'memory_mb' => memory_mb, 'other_services' => other_services, 'puppetserver' => puppetserver }
+  end
+
+  def puppetserver(xmx_mb: 2048, xms_mb: xmx_mb, code_cache_mb: nil, max_active_instances: nil)
+    {
+      'defaults_file' => '/etc/sysconfig/puppetserver',
+      'xms_mb' => xms_mb,
+      'xmx_mb' => xmx_mb,
+      'code_cache_mb' => code_cache_mb,
+      'max_active_instances' => max_active_instances,
+    }
   end
 
   let(:note) do
@@ -23,6 +33,7 @@ describe 'openvox_tune::tune' do
       .with_targets('medium.example.com')
       .always_return(host_resources(8, 16_000))
     expect_out_message.with_params('# medium.example.com: 8 CPU(s), 16000 MB memory, 4000 MB reserved')
+    expect_out_message.with_params('# Current: OpenVox Server is not installed.')
     expect_out_message.with_params('jruby-puppet.max-active-instances: 7')
     expect_out_message.with_params('JAVA_ARGS: -Xms4096m -Xmx4096m -XX:ReservedCodeCacheSize=1024m')
 
@@ -38,13 +49,122 @@ describe 'openvox_tune::tune' do
           'max-active-instances' => 7,
           'jvm-heap-mb' => 4096,
           'reserved-code-cache-mb' => 1024,
+          'memory-per-jruby-mb' => 512,
           'reserved-memory-mb' => 4000,
           'available-memory-mb' => 12_000,
           'limited-by' => 'cpu',
           'fits' => true,
+          'current' => nil,
+          'matches-current' => false,
         },
       ],
     )
+  end
+
+  context 'with OpenVox Server installed' do
+    it 'shows the packaged settings, with the default instance count' do
+      expect_task('openvox_tune::host_resources')
+        .with_targets('puppet.example.com')
+        .always_return(host_resources(8, 16_000, puppetserver: puppetserver))
+      expect_out_message.with_params(
+        '# Current: 4 instances (default), 2048m heap, JVM default code cache, 384 MB heap per instance',
+      )
+      expect_out_message.with_params('# The current settings already match the recommendation.').not_be_called
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com')
+      expect(result).to be_ok
+      expect(result.value.first).to include(
+        'max-active-instances' => 7,
+        'matches-current' => false,
+        'current' => {
+          'max-active-instances' => nil,
+          'effective-max-active-instances' => 4,
+          'jvm-min-heap-mb' => 2048,
+          'jvm-heap-mb' => 2048,
+          'reserved-code-cache-mb' => nil,
+          'memory-per-jruby-mb' => 384,
+        },
+      )
+    end
+
+    it 'says when the current settings already match' do
+      expect_task('openvox_tune::host_resources')
+        .with_targets('puppet.example.com')
+        .always_return(host_resources(8, 16_000, puppetserver: puppetserver(xmx_mb: 4096, code_cache_mb: 1024, max_active_instances: 7)))
+      expect_out_message.with_params('# The current settings already match the recommendation.')
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com')
+      expect(result).to be_ok
+      expect(result.value.first['matches-current']).to be(true)
+    end
+
+    it 'does not count a minimum heap below the maximum as a match' do
+      expect_task('openvox_tune::host_resources')
+        .with_targets('puppet.example.com')
+        .always_return(host_resources(8, 16_000, puppetserver: puppetserver(xmx_mb: 4096, xms_mb: 1024, code_cache_mb: 1024, max_active_instances: 7)))
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com')
+      expect(result).to be_ok
+      expect(result.value.first['matches-current']).to be(false)
+    end
+  end
+
+  context 'with the memory per JRuby instance' do
+    it 'sizes with memory_per_jruby_mb and says so' do
+      expect_task('openvox_tune::host_resources')
+        .with_targets('puppet.example.com')
+        .always_return(host_resources(8, 16_000))
+      expect_out_message.with_params('# Sized for 1024 MB of heap per JRuby instance.')
+      expect_out_message.with_params('JAVA_ARGS: -Xms7680m -Xmx7680m -XX:ReservedCodeCacheSize=1024m')
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com', 'memory_per_jruby_mb' => 1024)
+      expect(result).to be_ok
+      expect(result.value.first).to include('max-active-instances' => 7, 'memory-per-jruby-mb' => 1024)
+    end
+
+    it 'takes it from the current settings with use_current_memory_per_jruby' do
+      # (8704 - 512) / 4 = 2048 MB per instance; 5 instances fit in 12000 MB.
+      expect_task('openvox_tune::host_resources')
+        .with_targets('puppet.example.com')
+        .always_return(host_resources(8, 16_000, puppetserver: puppetserver(xmx_mb: 8704, max_active_instances: 4)))
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com', 'use_current_memory_per_jruby' => true)
+      expect(result).to be_ok
+      expect(result.value.first).to include(
+        'max-active-instances' => 5,
+        'jvm-heap-mb' => 10_752,
+        'memory-per-jruby-mb' => 2048,
+        'limited-by' => 'memory',
+      )
+    end
+
+    it 'never goes below 512 MB with use_current_memory_per_jruby' do
+      expect_task('openvox_tune::host_resources')
+        .with_targets('puppet.example.com')
+        .always_return(host_resources(8, 16_000, puppetserver: puppetserver))
+      expect_out_message.with_params('# Sized for 384 MB of heap per JRuby instance.').not_be_called
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com', 'use_current_memory_per_jruby' => true)
+      expect(result).to be_ok
+      expect(result.value.first).to include('memory-per-jruby-mb' => 512, 'jvm-heap-mb' => 4096)
+    end
+
+    it 'uses 512 MB with use_current_memory_per_jruby where OpenVox Server is not installed' do
+      expect_task('openvox_tune::host_resources')
+        .with_targets('puppet.example.com')
+        .always_return(host_resources(8, 16_000))
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com', 'use_current_memory_per_jruby' => true)
+      expect(result).to be_ok
+      expect(result.value.first['memory-per-jruby-mb']).to eq(512)
+    end
+
+    it 'refuses both memory_per_jruby_mb and use_current_memory_per_jruby' do
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com',
+                                              'memory_per_jruby_mb' => 1024, 'use_current_memory_per_jruby' => true)
+      expect(result).not_to be_ok
+      expect(result.value.message).to match(%r{not both})
+    end
   end
 
   it 'counts reserved_memory_mb and says when memory is the limit' do

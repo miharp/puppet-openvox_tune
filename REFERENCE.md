@@ -6,11 +6,17 @@
 
 ### Functions
 
+#### Public Functions
+
 * [`openvox_tune::recommend`](#openvox_tune--recommend): Recommend OpenVox Server tuning for a host's CPUs and memory.
+
+#### Private Functions
+
+* `openvox_tune::describe_current`: Describe OpenVox Server's current tuning settings in one line.
 
 ### Tasks
 
-* [`host_resources`](#host_resources): Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, and any OpenVoxDB or PostgreSQL servi
+* [`host_resources`](#host_resources): Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, any OpenVoxDB or PostgreSQL services 
 
 ### Plans
 
@@ -23,17 +29,19 @@
 Type: Puppet Language
 
 Starts from the OpenVox Server tuning guide: `num-cpus - 1` JRuby
-instances (at least 1), a heap of 512 MB plus 512 MB per instance, and a
+instances (at least 1), a heap of 512 MB plus 512 MB per instance (or
+`memory_per_jruby_mb`), and a
 reserved code cache of 512 MB below 6 instances, 1 GB for 6 to 12, and
 2 GB above 12. It then lowers the instance count until the heap and the
 code cache fit in the memory left after the reserve for the operating
 system and other services, and the host has at least 1.1 times the heap:
 OpenVox Server refuses to start with less.
 
-#### `openvox_tune::recommend(Integer[1] $cpus, Integer[1] $memory_mb, Optional[Integer[0]] $reserved_memory_mb = undef)`
+#### `openvox_tune::recommend(Integer[1] $cpus, Integer[1] $memory_mb, Optional[Integer[0]] $reserved_memory_mb = undef, Integer[1] $memory_per_jruby_mb = 512)`
 
 Starts from the OpenVox Server tuning guide: `num-cpus - 1` JRuby
-instances (at least 1), a heap of 512 MB plus 512 MB per instance, and a
+instances (at least 1), a heap of 512 MB plus 512 MB per instance (or
+`memory_per_jruby_mb`), and a
 reserved code cache of 512 MB below 6 instances, 1 GB for 6 to 12, and
 2 GB above 12. It then lowers the instance count until the heap and the
 code cache fit in the memory left after the reserve for the operating
@@ -41,6 +49,7 @@ system and other services, and the host has at least 1.1 times the heap:
 OpenVox Server refuses to start with less.
 
 Returns: `Hash` `max-active-instances`, `jvm-heap-mb` and `reserved-code-cache-mb`;
+`memory-per-jruby-mb`, the heap per instance they were sized with;
 `reserved-memory-mb` and `available-memory-mb`, the memory the
 recommendation was sized for; `limited-by`, `cpu` or `memory`; and
 `fits`, false when even one instance needs more memory than is
@@ -65,11 +74,18 @@ Data type: `Optional[Integer[0]]`
 Memory to leave for the operating system and other services, in MB.
 Defaults to a quarter of `memory_mb`.
 
+##### `memory_per_jruby_mb`
+
+Data type: `Integer[1]`
+
+Heap per JRuby instance, in MB. The tuning guide's 512 MB suits most
+code; raise it for many modules or a lot of Hiera data.
+
 ## Tasks
 
 ### <a name="host_resources"></a>`host_resources`
 
-Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, and any OpenVoxDB or PostgreSQL services running there. Used internally by openvox_tune::tune.
+Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, any OpenVoxDB or PostgreSQL services running there, and OpenVox Server's current heap, code cache and max-active-instances where it is installed. Used internally by openvox_tune::tune.
 
 **Supports noop?** false
 
@@ -95,9 +111,18 @@ This plan recommends the same `num-cpus - 1` starting point without the
 cap at 4, then lowers it until the heap and code cache fit in the memory
 left after `reserved_memory_mb`. See `openvox_tune::recommend`.
 
+Where OpenVox Server is installed, the plan also shows the current
+settings: the heap and code cache from JAVA_ARGS in the defaults file, and
+max-active-instances from conf.d (or the default it gets when unset), and
+says when they already match.
+
 The plan returns one hash per target with `target`, `cpus`, `memory-mb`,
 `other-services` (OpenVoxDB and PostgreSQL services running on the
-target), and the keys `openvox_tune::recommend` returns.
+target), the keys `openvox_tune::recommend` returns, `current` (undef
+where OpenVox Server is not installed; otherwise `max-active-instances`,
+undef when unset, `effective-max-active-instances`, `jvm-min-heap-mb`,
+`jvm-heap-mb`, `reserved-code-cache-mb` and `memory-per-jruby-mb`, the
+heap per instance by the tuning guide's formula), and `matches-current`.
 
 #### Examples
 
@@ -113,12 +138,20 @@ bolt plan run openvox_tune::tune --targets puppet.example.com
 bolt plan run openvox_tune::tune --targets puppet.example.com reserved_memory_mb=6144
 ```
 
+##### Keep the heap per JRuby instance the servers have now
+
+```puppet
+bolt plan run openvox_tune::tune --targets servers use_current_memory_per_jruby=true
+```
+
 #### Parameters
 
 The following parameters are available in the `openvox_tune::tune` plan:
 
 * [`targets`](#-openvox_tune--tune--targets)
 * [`reserved_memory_mb`](#-openvox_tune--tune--reserved_memory_mb)
+* [`memory_per_jruby_mb`](#-openvox_tune--tune--memory_per_jruby_mb)
+* [`use_current_memory_per_jruby`](#-openvox_tune--tune--use_current_memory_per_jruby)
 
 ##### <a name="-openvox_tune--tune--targets"></a>`targets`
 
@@ -136,4 +169,24 @@ meant for the operating system alone; raise it when OpenVoxDB,
 PostgreSQL or anything else large runs on the same host.
 
 Default value: `undef`
+
+##### <a name="-openvox_tune--tune--memory_per_jruby_mb"></a>`memory_per_jruby_mb`
+
+Data type: `Optional[Integer[256]]`
+
+Heap per JRuby instance, in MB, instead of the tuning guide's 512 MB.
+Raise it for code with many modules or a lot of Hiera data.
+
+Default value: `undef`
+
+##### <a name="-openvox_tune--tune--use_current_memory_per_jruby"></a>`use_current_memory_per_jruby`
+
+Data type: `Boolean`
+
+Size each target with the heap per instance its current settings give,
+`(heap - 512) / instances`, but never less than 512 MB. Keeps a per-JRuby
+heap that was raised on purpose. Cannot be combined with
+`memory_per_jruby_mb`.
+
+Default value: `false`
 

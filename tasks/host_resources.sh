@@ -40,4 +40,59 @@ if command -v systemctl >/dev/null 2>&1; then
   done
 fi
 
-printf '{"cpus":%d,"memory_mb":%d,"other_services":[%s]}\n' "$cpus" "$memory_mb" "$other_services"
+# OpenVox Server's current settings, when it is installed: the heap and code
+# cache from JAVA_ARGS in the defaults file, and an explicit
+# jruby-puppet.max-active-instances from conf.d. A setting that is not there
+# is reported as null.
+json_number() { if [ -n "$1" ]; then printf '%s' "$1"; else printf 'null'; fi; }
+
+to_mb() {
+  local value=$1 number=${1%[kKmMgG]}
+  case $value in
+    *[gG]) echo $(( number * 1024 )) ;;
+    *[mM]) echo "$number" ;;
+    *[kK]) echo $(( number / 1024 )) ;;
+    *)     echo $(( number / 1048576 )) ;;
+  esac
+}
+
+puppetserver='null'
+defaults=/etc/default/puppetserver
+[ -r "$defaults" ] || defaults=/etc/sysconfig/puppetserver
+if [ -r "$defaults" ]; then
+  # Read JAVA_ARGS as the service and the puppetserver CLI do: by sourcing
+  # the file. For repeated options the JVM takes the last one, as here.
+  # shellcheck source=/dev/null
+  java_args=$(set +eu; . "$defaults" >/dev/null 2>&1; printf '%s' "${JAVA_ARGS:-}") || true
+  xms='' xmx='' code_cache=''
+  for arg in $java_args; do
+    case $arg in
+      -Xms[0-9]*) xms=$(to_mb "${arg#-Xms}") ;;
+      -Xmx[0-9]*) xmx=$(to_mb "${arg#-Xmx}") ;;
+      -XX:ReservedCodeCacheSize=[0-9]*) code_cache=$(to_mb "${arg#*=}") ;;
+    esac
+  done
+
+  # conf.d is HOCON, so read it with the hocon gem the agent ships rather
+  # than with grep.
+  max_active=''
+  ruby=/opt/puppetlabs/puppet/bin/ruby
+  confd=/etc/puppetlabs/puppetserver/conf.d
+  if [ -x "$ruby" ] && [ -d "$confd" ]; then
+    max_active=$("$ruby" -e '
+      require "hocon"
+      value = nil
+      Dir.glob(File.join(ARGV[0], "*.conf")).sort.each do |file|
+        found = (Hocon.load(file).dig("jruby-puppet", "max-active-instances") rescue nil)
+        value = found unless found.nil?
+      end
+      print Integer(value) unless value.nil?
+    ' "$confd" 2>/dev/null) || max_active=''
+  fi
+
+  puppetserver=$(printf '{"defaults_file":"%s","xms_mb":%s,"xmx_mb":%s,"code_cache_mb":%s,"max_active_instances":%s}' \
+    "$defaults" "$(json_number "$xms")" "$(json_number "$xmx")" "$(json_number "$code_cache")" "$(json_number "$max_active")")
+fi
+
+printf '{"cpus":%d,"memory_mb":%d,"other_services":[%s],"puppetserver":%s}\n' \
+  "$cpus" "$memory_mb" "$other_services" "$puppetserver"

@@ -23,7 +23,14 @@
 # max-active-instances from conf.d (or the default it gets when unset), and
 # says when they already match.
 #
-# The plan returns one hash per target with `target`, `cpus`, `memory-mb`,
+# Run it against the whole deployment. A host whose CA service is disabled
+# in services.d/ca.cfg is a compiler and is sized like any server. When the
+# run includes a compiler, the hosts whose CA is enabled are servers with
+# compilers: their compilers compile the catalogs, so they get only 1 to 4
+# instances. See `openvox_tune::recommend`.
+#
+# The plan returns one hash per target with `target`, `role` (`server`,
+# `compiler` or `server-with-compilers`), `cpus`, `memory-mb`,
 # `other-services` (OpenVoxDB and PostgreSQL services running on the
 # target), the keys `openvox_tune::recommend` returns, `current` (undef
 # where OpenVox Server is not installed; otherwise `max-active-instances`,
@@ -83,9 +90,23 @@ plan openvox_tune::tune(
 
   $results = run_task('openvox_tune::host_resources', $targets)
 
+  # Compilers disable the CA service. When the run includes one, the hosts
+  # with the CA enabled are the servers those compilers serve.
+  $with_compilers = $results.any |$result| {
+    $found = $result.value['puppetserver']
+    $found =~ Hash and $found['ca_enabled'] == false
+  }
+
   $recommendations = $results.map |$result| {
     $host = $result.value
     $server = $host['puppetserver']
+    $role = if $server =~ Hash and $server['ca_enabled'] == false {
+      'compiler'
+    } elsif $server =~ Hash and $with_compilers {
+      'server-with-compilers'
+    } else {
+      'server'
+    }
 
     if $server =~ Undef {
       $current = undef
@@ -116,7 +137,9 @@ plan openvox_tune::tune(
       512
     }
 
-    $settings = openvox_tune::recommend($host['cpus'], $host['memory_mb'], $reserved_memory_mb, $memory_per_jruby)
+    $settings = openvox_tune::recommend(
+      $host['cpus'], $host['memory_mb'], $reserved_memory_mb, $memory_per_jruby, $role,
+    )
 
     $matches_current = $current =~ Hash and [
       $current['effective-max-active-instances'], $current['jvm-min-heap-mb'],
@@ -128,6 +151,7 @@ plan openvox_tune::tune(
 
     $recommendation = {
       'target'         => $result.target.name,
+      'role'           => $role,
       'cpus'           => $host['cpus'],
       'memory-mb'      => $host['memory_mb'],
       'other-services' => $host['other_services'],
@@ -152,7 +176,6 @@ plan openvox_tune::tune(
     $code_cache = $r['reserved-code-cache-mb']
     $needed = $heap + $code_cache
     $available = $r['available-memory-mb']
-    $cpu_instances = max($r['cpus'] - 1, 1)
     $others = $r['other-services'].join(', ')
     $current_text = openvox_tune::describe_current($r['current'])
 
@@ -160,6 +183,14 @@ plan openvox_tune::tune(
     out::message("# Current: ${current_text}")
     if $r['matches-current'] {
       out::message('# The current settings already match the recommendation.')
+    }
+    if $r['role'] == 'compiler' {
+      out::message('# Compiler: its CA service is disabled.')
+    } elsif $r['role'] == 'server-with-compilers' {
+      out::message(@("MSG"/L))
+        # Server with compilers: the compilers compile the catalogs, so this server \
+        keeps 1 instance below 4 CPUs, 2 below 16 and 4 from 16.
+        |- MSG
     }
     if $r['memory-per-jruby-mb'] != 512 {
       out::message("# Sized for ${r['memory-per-jruby-mb']} MB of heap per JRuby instance.")
@@ -172,8 +203,8 @@ plan openvox_tune::tune(
         |- MSG
     } elsif $r['limited-by'] == 'memory' {
       out::message(@("MSG"/L))
-        # Limited by memory: the CPUs allow ${cpu_instances} instances; \
-        ${r['max-active-instances']} fit in the ${available} MB left after the reserve.
+        # Limited by memory: ${r['max-active-instances']} of ${r['instance-limit']} instances \
+        fit in the ${available} MB left after the reserve.
         |- MSG
     }
 

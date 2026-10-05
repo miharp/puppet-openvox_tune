@@ -76,6 +76,27 @@ bolt plan run openvox_tune::tune --targets puppet.example.com memory_per_jruby_m
 bolt plan run openvox_tune::tune --targets puppet.example.com use_current_memory_per_jruby=true
 ```
 
+### Deployments with compilers
+
+Run the plan against the server and its compilers together:
+
+```shell
+bolt plan run openvox_tune::tune --targets puppet.example.com,compiler01.example.com,compiler02.example.com
+```
+
+A host whose CA service is disabled in
+`/etc/puppetlabs/puppetserver/services.d/ca.cfg` is a compiler, as
+[ovadm](https://forge.puppet.com/modules/miharp/ovadm) and theforeman-puppet
+set them up, and is sized like any server. When the run includes a
+compiler, the server is sized as a server with compilers: the compilers
+compile the catalogs, so it keeps 1 JRuby instance below 4 CPUs, 2 below 16
+and 4 from 16, and leaves the rest of its memory to OpenVoxDB and
+PostgreSQL. Certificate requests do not use JRuby instances, so the server's
+instances only compile catalogs for agents that still point at it, such as
+its own and the compilers'. This assumes the other agents get their
+catalogs from the compilers, through a load balancer as in ovadm's Large
+topology. Run against the server alone, it is sized as a standalone server.
+
 ### Servers managed by theforeman-puppet
 
 If [theforeman-puppet](https://forge.puppet.com/modules/theforeman/puppet)

@@ -1,5 +1,5 @@
 {
-  "description": "Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, any OpenVoxDB or PostgreSQL services running there, and OpenVox Server's current heap, code cache and max-active-instances where it is installed. Used internally by openvox_tune::tune.",
+  "description": "Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, any OpenVoxDB or PostgreSQL services running there, and, where OpenVox Server is installed, its current heap, code cache and max-active-instances and whether its CA service is enabled. Used internally by openvox_tune::tune.",
   "input_method": "environment",
   "parameters": {},
   "supports_noop": false

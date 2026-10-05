@@ -30,30 +30,34 @@ Type: Puppet Language
 
 Starts from the OpenVox Server tuning guide: `num-cpus - 1` JRuby
 instances (at least 1), a heap of 512 MB plus 512 MB per instance (or
-`memory_per_jruby_mb`), and a
-reserved code cache of 512 MB below 6 instances, 1 GB for 6 to 12, and
-2 GB above 12. It then lowers the instance count until the heap and the
-code cache fit in the memory left after the reserve for the operating
-system and other services, and the host has at least 1.1 times the heap:
-OpenVox Server refuses to start with less.
+`memory_per_jruby_mb`), and a reserved code cache of 512 MB below 6
+instances, 1 GB for 6 to 12, and 2 GB above 12. A server with compilers
+gets fewer instances: 1 below 4 CPUs, 2 below 16 and 4 from 16, since its
+compilers compile the catalogs. It then lowers the instance count until the
+heap and the code cache fit in the memory left after the reserve for the
+operating system and other services, and the host has at least 1.1 times
+the heap: OpenVox Server refuses to start with less.
 
-#### `openvox_tune::recommend(Integer[1] $cpus, Integer[1] $memory_mb, Optional[Integer[0]] $reserved_memory_mb = undef, Integer[1] $memory_per_jruby_mb = 512)`
+#### `openvox_tune::recommend(Integer[1] $cpus, Integer[1] $memory_mb, Optional[Integer[0]] $reserved_memory_mb = undef, Integer[1] $memory_per_jruby_mb = 512, Enum['server', 'compiler', 'server-with-compilers'] $role = 'server')`
 
 Starts from the OpenVox Server tuning guide: `num-cpus - 1` JRuby
 instances (at least 1), a heap of 512 MB plus 512 MB per instance (or
-`memory_per_jruby_mb`), and a
-reserved code cache of 512 MB below 6 instances, 1 GB for 6 to 12, and
-2 GB above 12. It then lowers the instance count until the heap and the
-code cache fit in the memory left after the reserve for the operating
-system and other services, and the host has at least 1.1 times the heap:
-OpenVox Server refuses to start with less.
+`memory_per_jruby_mb`), and a reserved code cache of 512 MB below 6
+instances, 1 GB for 6 to 12, and 2 GB above 12. A server with compilers
+gets fewer instances: 1 below 4 CPUs, 2 below 16 and 4 from 16, since its
+compilers compile the catalogs. It then lowers the instance count until the
+heap and the code cache fit in the memory left after the reserve for the
+operating system and other services, and the host has at least 1.1 times
+the heap: OpenVox Server refuses to start with less.
 
 Returns: `Hash` `max-active-instances`, `jvm-heap-mb` and `reserved-code-cache-mb`;
 `memory-per-jruby-mb`, the heap per instance they were sized with;
 `reserved-memory-mb` and `available-memory-mb`, the memory the
-recommendation was sized for; `limited-by`, `cpu` or `memory`; and
-`fits`, false when even one instance needs more memory than is
-available, in which case the recommendation is for one instance anyway.
+recommendation was sized for; `instance-limit`, the instances the CPUs
+and role allow before memory is counted; `limited-by`, `cpu`, `role` or
+`memory`; and `fits`, false when even one instance needs more memory
+than is available, in which case the recommendation is for one instance
+anyway.
 
 ##### `cpus`
 
@@ -81,11 +85,19 @@ Data type: `Integer[1]`
 Heap per JRuby instance, in MB. The tuning guide's 512 MB suits most
 code; raise it for many modules or a lot of Hiera data.
 
+##### `role`
+
+Data type: `Enum['server', 'compiler', 'server-with-compilers']`
+
+`server` for a server that compiles catalogs itself, `compiler` for a
+compiler (sized the same way), or `server-with-compilers` for the CA
+server of a deployment whose compilers compile the catalogs.
+
 ## Tasks
 
 ### <a name="host_resources"></a>`host_resources`
 
-Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, any OpenVoxDB or PostgreSQL services running there, and OpenVox Server's current heap, code cache and max-active-instances where it is installed. Used internally by openvox_tune::tune.
+Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, any OpenVoxDB or PostgreSQL services running there, and, where OpenVox Server is installed, its current heap, code cache and max-active-instances and whether its CA service is enabled. Used internally by openvox_tune::tune.
 
 **Supports noop?** false
 
@@ -116,7 +128,14 @@ settings: the heap and code cache from JAVA_ARGS in the defaults file, and
 max-active-instances from conf.d (or the default it gets when unset), and
 says when they already match.
 
-The plan returns one hash per target with `target`, `cpus`, `memory-mb`,
+Run it against the whole deployment. A host whose CA service is disabled
+in services.d/ca.cfg is a compiler and is sized like any server. When the
+run includes a compiler, the hosts whose CA is enabled are servers with
+compilers: their compilers compile the catalogs, so they get only 1 to 4
+instances. See `openvox_tune::recommend`.
+
+The plan returns one hash per target with `target`, `role` (`server`,
+`compiler` or `server-with-compilers`), `cpus`, `memory-mb`,
 `other-services` (OpenVoxDB and PostgreSQL services running on the
 target), the keys `openvox_tune::recommend` returns, `current` (undef
 where OpenVox Server is not installed; otherwise `max-active-instances`,

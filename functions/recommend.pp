@@ -2,12 +2,13 @@
 #
 # Starts from the OpenVox Server tuning guide: `num-cpus - 1` JRuby
 # instances (at least 1), a heap of 512 MB plus 512 MB per instance (or
-# `memory_per_jruby_mb`), and a
-# reserved code cache of 512 MB below 6 instances, 1 GB for 6 to 12, and
-# 2 GB above 12. It then lowers the instance count until the heap and the
-# code cache fit in the memory left after the reserve for the operating
-# system and other services, and the host has at least 1.1 times the heap:
-# OpenVox Server refuses to start with less.
+# `memory_per_jruby_mb`), and a reserved code cache of 512 MB below 6
+# instances, 1 GB for 6 to 12, and 2 GB above 12. A server with compilers
+# gets fewer instances: 1 below 4 CPUs, 2 below 16 and 4 from 16, since its
+# compilers compile the catalogs. It then lowers the instance count until the
+# heap and the code cache fit in the memory left after the reserve for the
+# operating system and other services, and the host has at least 1.1 times
+# the heap: OpenVox Server refuses to start with less.
 #
 # @param cpus
 #   The CPUs available to OpenVox Server.
@@ -23,19 +24,27 @@
 #   Heap per JRuby instance, in MB. The tuning guide's 512 MB suits most
 #   code; raise it for many modules or a lot of Hiera data.
 #
+# @param role
+#   `server` for a server that compiles catalogs itself, `compiler` for a
+#   compiler (sized the same way), or `server-with-compilers` for the CA
+#   server of a deployment whose compilers compile the catalogs.
+#
 # @return [Hash]
 #   `max-active-instances`, `jvm-heap-mb` and `reserved-code-cache-mb`;
 #   `memory-per-jruby-mb`, the heap per instance they were sized with;
 #   `reserved-memory-mb` and `available-memory-mb`, the memory the
-#   recommendation was sized for; `limited-by`, `cpu` or `memory`; and
-#   `fits`, false when even one instance needs more memory than is
-#   available, in which case the recommendation is for one instance anyway.
+#   recommendation was sized for; `instance-limit`, the instances the CPUs
+#   and role allow before memory is counted; `limited-by`, `cpu`, `role` or
+#   `memory`; and `fits`, false when even one instance needs more memory
+#   than is available, in which case the recommendation is for one instance
+#   anyway.
 #
 function openvox_tune::recommend(
   Integer[1]           $cpus,
   Integer[1]           $memory_mb,
   Optional[Integer[0]] $reserved_memory_mb = undef,
   Integer[1]           $memory_per_jruby_mb = 512,
+  Enum['server', 'compiler', 'server-with-compilers'] $role = 'server',
 ) >> Hash {
   $reserved = $reserved_memory_mb ? {
     undef   => $memory_mb / 4,
@@ -43,8 +52,16 @@ function openvox_tune::recommend(
   }
   $available = $memory_mb - $reserved
   $cpu_instances = max($cpus - 1, 1)
+  $instance_limit = $role ? {
+    'server-with-compilers' => min($cpu_instances, $cpus ? {
+      Integer[1, 3]  => 1,
+      Integer[4, 15] => 2,
+      default        => 4,
+    }),
+    default                 => $cpu_instances,
+  }
 
-  $candidates = Integer[1, $cpu_instances].map |Integer $instances| {
+  $candidates = Integer[1, $instance_limit].map |Integer $instances| {
     {
       'max-active-instances'   => $instances,
       'jvm-heap-mb'            => 512 + $instances * $memory_per_jruby_mb,
@@ -67,14 +84,20 @@ function openvox_tune::recommend(
     default => $candidates[0],
   }
 
+  $limited_by = if !$fits or $chosen['max-active-instances'] < $instance_limit {
+    'memory'
+  } elsif $instance_limit < $cpu_instances {
+    'role'
+  } else {
+    'cpu'
+  }
+
   $chosen + {
     'memory-per-jruby-mb' => $memory_per_jruby_mb,
     'reserved-memory-mb'  => $reserved,
     'available-memory-mb' => $available,
-    'limited-by'          => ($fits and $chosen['max-active-instances'] == $cpu_instances) ? {
-      true    => 'cpu',
-      default => 'memory',
-    },
+    'instance-limit'      => $instance_limit,
+    'limited-by'          => $limited_by,
     'fits'                => $fits,
   }
 }

@@ -90,8 +90,20 @@ if [ -r "$defaults" ]; then
     ' "$confd" 2>/dev/null) || max_active=''
   fi
 
-  puppetserver=$(printf '{"defaults_file":"%s","xms_mb":%s,"xmx_mb":%s,"code_cache_mb":%s,"max_active_instances":%s}' \
-    "$defaults" "$(json_number "$xms")" "$(json_number "$xmx")" "$(json_number "$code_cache")" "$(json_number "$max_active")")
+  # Whether this host is a CA or a compiler. Compilers comment out the CA
+  # service in services.d/ca.cfg and enable the disabled one instead (ovadm
+  # and theforeman-puppet both do); without ca.cfg it is unknown.
+  ca_enabled=''
+  ca_cfg=/etc/puppetlabs/puppetserver/services.d/ca.cfg
+  if grep -q '^[[:space:]]*puppetlabs\.services\.ca\.certificate-authority-service/' "$ca_cfg" 2>/dev/null; then
+    ca_enabled=true
+  elif grep -q '^[[:space:]]*puppetlabs\.services\.ca\.certificate-authority-disabled-service/' "$ca_cfg" 2>/dev/null; then
+    ca_enabled=false
+  fi
+
+  puppetserver=$(printf '{"defaults_file":"%s","xms_mb":%s,"xmx_mb":%s,"code_cache_mb":%s,"max_active_instances":%s,"ca_enabled":%s}' \
+    "$defaults" "$(json_number "$xms")" "$(json_number "$xmx")" "$(json_number "$code_cache")" "$(json_number "$max_active")" \
+    "$(json_number "$ca_enabled")")
 fi
 
 printf '{"cpus":%d,"memory_mb":%d,"other_services":[%s],"puppetserver":%s}\n' \

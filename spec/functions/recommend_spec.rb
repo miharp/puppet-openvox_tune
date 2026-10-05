@@ -12,6 +12,7 @@ describe 'openvox_tune::recommend' do
         'memory-per-jruby-mb' => 512,
         'reserved-memory-mb' => 4000,
         'available-memory-mb' => 12_000,
+        'instance-limit' => 7,
         'limited-by' => 'cpu',
         'fits' => true,
       )
@@ -25,6 +26,7 @@ describe 'openvox_tune::recommend' do
         'memory-per-jruby-mb' => 512,
         'reserved-memory-mb' => 1000,
         'available-memory-mb' => 3000,
+        'instance-limit' => 1,
         'limited-by' => 'cpu',
         'fits' => true,
       )
@@ -38,6 +40,7 @@ describe 'openvox_tune::recommend' do
         'memory-per-jruby-mb' => 512,
         'reserved-memory-mb' => 16_000,
         'available-memory-mb' => 48_000,
+        'instance-limit' => 13,
         'limited-by' => 'cpu',
         'fits' => true,
       )
@@ -53,6 +56,7 @@ describe 'openvox_tune::recommend' do
         'memory-per-jruby-mb' => 512,
         'reserved-memory-mb' => 2500,
         'available-memory-mb' => 7500,
+        'instance-limit' => 15,
         'limited-by' => 'memory',
         'fits' => true,
       )
@@ -66,6 +70,7 @@ describe 'openvox_tune::recommend' do
         'memory-per-jruby-mb' => 1024,
         'reserved-memory-mb' => 4000,
         'available-memory-mb' => 12_000,
+        'instance-limit' => 15,
         'limited-by' => 'memory',
         'fits' => true,
       )
@@ -79,6 +84,7 @@ describe 'openvox_tune::recommend' do
         'memory-per-jruby-mb' => 512,
         'reserved-memory-mb' => 12_000,
         'available-memory-mb' => 4000,
+        'instance-limit' => 7,
         'limited-by' => 'memory',
         'fits' => true,
       )
@@ -92,6 +98,7 @@ describe 'openvox_tune::recommend' do
         'memory-per-jruby-mb' => 512,
         'reserved-memory-mb' => 0,
         'available-memory-mb' => 2048,
+        'instance-limit' => 3,
         'limited-by' => 'memory',
         'fits' => true,
       )
@@ -107,6 +114,7 @@ describe 'openvox_tune::recommend' do
         'memory-per-jruby-mb' => 512,
         'reserved-memory-mb' => 0,
         'available-memory-mb' => 32_000,
+        'instance-limit' => 63,
         'limited-by' => 'memory',
         'fits' => true,
       )
@@ -120,6 +128,7 @@ describe 'openvox_tune::recommend' do
         'memory-per-jruby-mb' => 512,
         'reserved-memory-mb' => 475,
         'available-memory-mb' => 1425,
+        'instance-limit' => 1,
         'limited-by' => 'memory',
         'fits' => false,
       )
@@ -133,9 +142,63 @@ describe 'openvox_tune::recommend' do
         'memory-per-jruby-mb' => 512,
         'reserved-memory-mb' => 5000,
         'available-memory-mb' => -1000,
+        'instance-limit' => 3,
         'limited-by' => 'memory',
         'fits' => false,
       )
+    end
+  end
+
+  context 'with a role' do
+    it 'sizes a compiler like a server' do
+      expect(subject).to run.with_params(8, 16_000, nil, 512, 'compiler').and_return(
+        'max-active-instances' => 7,
+        'jvm-heap-mb' => 4096,
+        'reserved-code-cache-mb' => 1024,
+        'memory-per-jruby-mb' => 512,
+        'reserved-memory-mb' => 4000,
+        'available-memory-mb' => 12_000,
+        'instance-limit' => 7,
+        'limited-by' => 'cpu',
+        'fits' => true,
+      )
+    end
+
+    {
+      2 => 1,
+      4 => 2,
+      8 => 2,
+      15 => 2,
+      16 => 4,
+      48 => 4,
+    }.each do |cpus, instances|
+      it "gives a server with compilers #{instances} instance(s) on #{cpus} CPUs" do
+        expect(subject.execute(cpus, 64_000, nil, 512, 'server-with-compilers')).to include(
+          'max-active-instances' => instances,
+          'jvm-heap-mb' => 512 + (instances * 512),
+          'instance-limit' => instances,
+          'limited-by' => ((cpus == 2) ? 'cpu' : 'role'),
+          'fits' => true,
+        )
+      end
+    end
+
+    it 'still lowers a server with compilers to what fits in memory' do
+      expect(subject).to run.with_params(16, 3000, nil, 512, 'server-with-compilers').and_return(
+        'max-active-instances' => 2,
+        'jvm-heap-mb' => 1536,
+        'reserved-code-cache-mb' => 512,
+        'memory-per-jruby-mb' => 512,
+        'reserved-memory-mb' => 750,
+        'available-memory-mb' => 2250,
+        'instance-limit' => 4,
+        'limited-by' => 'memory',
+        'fits' => true,
+      )
+    end
+
+    it 'rejects an unknown role' do
+      expect(subject).to run.with_params(8, 16_000, nil, 512, 'primary').and_raise_error(ArgumentError, %r{role})
     end
   end
 

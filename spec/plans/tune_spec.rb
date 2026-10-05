@@ -9,13 +9,14 @@ describe 'openvox_tune::tune' do
     { 'cpus' => cpus, 'memory_mb' => memory_mb, 'other_services' => other_services, 'puppetserver' => puppetserver }
   end
 
-  def puppetserver(xmx_mb: 2048, xms_mb: xmx_mb, code_cache_mb: nil, max_active_instances: nil)
+  def puppetserver(xmx_mb: 2048, xms_mb: xmx_mb, code_cache_mb: nil, max_active_instances: nil, ca_enabled: true)
     {
       'defaults_file' => '/etc/sysconfig/puppetserver',
       'xms_mb' => xms_mb,
       'xmx_mb' => xmx_mb,
       'code_cache_mb' => code_cache_mb,
       'max_active_instances' => max_active_instances,
+      'ca_enabled' => ca_enabled,
     }
   end
 
@@ -43,6 +44,7 @@ describe 'openvox_tune::tune' do
       [
         {
           'target' => 'medium.example.com',
+          'role' => 'server',
           'cpus' => 8,
           'memory-mb' => 16_000,
           'other-services' => [],
@@ -52,6 +54,7 @@ describe 'openvox_tune::tune' do
           'memory-per-jruby-mb' => 512,
           'reserved-memory-mb' => 4000,
           'available-memory-mb' => 12_000,
+          'instance-limit' => 7,
           'limited-by' => 'cpu',
           'fits' => true,
           'current' => nil,
@@ -68,6 +71,59 @@ describe 'openvox_tune::tune' do
         },
       ],
     )
+  end
+
+  context 'with compilers' do
+    let(:server_with_compilers) do
+      '# Server with compilers: the compilers compile the catalogs, so this server ' \
+        'keeps 1 instance below 4 CPUs, 2 below 16 and 4 from 16.'
+    end
+
+    it 'keeps few instances on a server whose compilers are in the run' do
+      expect_task('openvox_tune::host_resources').return_for_targets(
+        'puppet.example.com' => host_resources(8, 16_000, puppetserver: puppetserver),
+        'compiler01.example.com' => host_resources(8, 16_000, puppetserver: puppetserver(ca_enabled: false)),
+      )
+      expect_out_message.with_params(server_with_compilers)
+      expect_out_message.with_params('# Compiler: its CA service is disabled.')
+
+      result = run_plan('openvox_tune::tune', 'targets' => ['puppet.example.com', 'compiler01.example.com'])
+      expect(result).to be_ok
+      by_target = result.value.to_h { |r| [r['target'], r] }
+      expect(by_target['puppet.example.com']).to include(
+        'role' => 'server-with-compilers', 'max-active-instances' => 2, 'jvm-heap-mb' => 1536, 'limited-by' => 'role',
+      )
+      expect(by_target['compiler01.example.com']).to include(
+        'role' => 'compiler', 'max-active-instances' => 7, 'jvm-heap-mb' => 4096, 'limited-by' => 'cpu',
+      )
+    end
+
+    it 'sizes a server as a server when no compiler is in the run' do
+      expect_task('openvox_tune::host_resources')
+        .with_targets('puppet.example.com')
+        .always_return(host_resources(8, 16_000, puppetserver: puppetserver))
+      expect_out_message.with_params(server_with_compilers).not_be_called
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com')
+      expect(result).to be_ok
+      expect(result.value.first).to include('role' => 'server', 'max-active-instances' => 7)
+    end
+
+    it 'counts a server whose CA state is unknown as a server with compilers, and a bare host as a server' do
+      expect_task('openvox_tune::host_resources').return_for_targets(
+        'puppet.example.com' => host_resources(8, 16_000, puppetserver: puppetserver(ca_enabled: nil)),
+        'compiler01.example.com' => host_resources(8, 16_000, puppetserver: puppetserver(ca_enabled: false)),
+        'new.example.com' => host_resources(8, 16_000),
+      )
+
+      result = run_plan('openvox_tune::tune', 'targets' => ['puppet.example.com', 'compiler01.example.com', 'new.example.com'])
+      expect(result).to be_ok
+      expect(result.value.to_h { |r| [r['target'], r['role']] }).to eq(
+        'puppet.example.com' => 'server-with-compilers',
+        'compiler01.example.com' => 'compiler',
+        'new.example.com' => 'server',
+      )
+    end
   end
 
   context 'with hiera' do
@@ -216,7 +272,7 @@ describe 'openvox_tune::tune' do
       .with_targets('medium.example.com')
       .always_return(host_resources(8, 16_000))
     expect_out_message.with_params(
-      '# Limited by memory: the CPUs allow 7 instances; 5 fit in the 4000 MB left after the reserve.',
+      '# Limited by memory: 5 of 7 instances fit in the 4000 MB left after the reserve.',
     )
     expect_out_message.with_params('JAVA_ARGS: -Xms3072m -Xmx3072m -XX:ReservedCodeCacheSize=512m')
 

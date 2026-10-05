@@ -13,6 +13,7 @@
 #### Private Functions
 
 * `openvox_tune::describe_current`: Describe OpenVox Server's current tuning settings in one line.
+* `openvox_tune::describe_options`: Describe OpenVox Server's other current settings in one line.
 
 ### Tasks
 
@@ -97,7 +98,7 @@ server of a deployment whose compilers compile the catalogs.
 
 ### <a name="host_resources"></a>`host_resources`
 
-Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, any OpenVoxDB or PostgreSQL services running there, and, where OpenVox Server is installed, its current heap, code cache and max-active-instances and whether its CA service is enabled. Used internally by openvox_tune::tune.
+Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, any OpenVoxDB or PostgreSQL services running there, and, where OpenVox Server is installed, its current heap, code cache, JRuby pool settings and environment_timeout, and whether its CA service is enabled. Used internally by openvox_tune::tune.
 
 **Supports noop?** false
 
@@ -126,7 +127,10 @@ left after `reserved_memory_mb`. See `openvox_tune::recommend`.
 Where OpenVox Server is installed, the plan also shows the current
 settings: the heap and code cache from JAVA_ARGS in the defaults file, and
 max-active-instances from conf.d (or the default it gets when unset), and
-says when they already match.
+says when they already match. It also shows environment_timeout, as the
+server resolves it from puppet.conf, and max-requests-per-instance,
+max-queued-requests and multithreaded where they are set, and points out
+an environment_timeout of 0, which makes every compile read the code again.
 
 Run it against the whole deployment. A host whose CA service is disabled
 in services.d/ca.cfg is a compiler and is sized like any server. When the
@@ -140,8 +144,10 @@ The plan returns one hash per target with `target`, `role` (`server`,
 target), the keys `openvox_tune::recommend` returns, `current` (undef
 where OpenVox Server is not installed; otherwise `max-active-instances`,
 undef when unset, `effective-max-active-instances`, `jvm-min-heap-mb`,
-`jvm-heap-mb`, `reserved-code-cache-mb` and `memory-per-jruby-mb`, the
-heap per instance by the tuning guide's formula), `matches-current`, and
+`jvm-heap-mb`, `reserved-code-cache-mb`, `memory-per-jruby-mb`, the
+heap per instance by the tuning guide's formula, `environment-timeout`, in
+seconds or `unlimited`, `max-requests-per-instance`, `max-queued-requests`
+and `multithreaded`, each undef when not known or not set), `matches-current`, and
 `hiera`, the same settings as Hiera data for theforeman-puppet.
 
 #### Examples

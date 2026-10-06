@@ -24,7 +24,7 @@
 
 ### Tasks
 
-* [`host_resources`](#host_resources): Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, any OpenVoxDB or PostgreSQL services 
+* [`host_resources`](#host_resources): Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, any OpenVoxDB or PostgreSQL services
 * [`jruby_load`](#jruby_load): Measure how much JRuby time OpenVox Server used over a window, from the jruby.borrow-time its access log records for every request: JRuby-sec
 
 ### Plans
@@ -472,4 +472,3 @@ level of the hierarchy, such as their role; the plan notes when the
 compilers in the run get different values.
 
 Default value: `undef`
-

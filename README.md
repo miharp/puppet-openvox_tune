@@ -228,6 +228,11 @@ seconds later (`restart_delay`), so that a server applying its own catalog
 finishes the run, report included, first. With `restart => false` the
 settings apply at the next restart.
 
+A server with more JRubies takes longer to warm up after the restart, since
+each JRuby warms up on its own. In the [benchmark](#measured-effect), 15
+JRubies under full load compiled more slowly than the packaged 4 for the
+first five minutes. Change the settings at a quiet time.
+
 The class fails rather than leave puppetserver unable to restart:
 
 - OpenVox Server refuses to start when two files in `conf.d` set the same
@@ -308,6 +313,27 @@ On a host too small for even one instance, the plan still recommends one
 packaged 2 GB heap fails the startup check on any host with less than about
 2.2 GB of memory, so OpenVox Server does not start there at all until the
 heap is lowered.
+
+### Measured effect
+
+On a server with 16 vCPUs and 31 GB of memory, compiling a catalog of about
+1,500 resources with 32 requests in flight
+([method and full results](https://github.com/miharp/puppet-openvox_tune/tree/main/benchmark)):
+
+| OpenVox 8.16.0 | Catalogs per minute | p95 latency | Server CPU busy |
+| --- | ---: | ---: | ---: |
+| Packaged defaults (4 JRubies, 2 GB heap) | 89 | 22.4 s | 34% |
+| Packaged defaults, `environment_timeout` unlimited | 105 | 18.8 s | 32% |
+| Recommendation (15 JRubies, 8 GB heap), `environment_timeout` unlimited | 300 | 7.1 s | 95% |
+
+With the packaged defaults, requests beyond the fourth wait for a JRuby
+while two thirds of the CPU sits idle. OpenVox 9.0.1 was 5 to 6% slower in
+each configuration, with the same gain from tuning. The tuned server used
+about 11 GB of memory, against 3.4 GB.
+
+More JRubies take longer to warm up. Under full load, the tuned server
+compiled more slowly than the packaged defaults for the first five minutes
+after its restart, and settled after 15 to 20 minutes.
 
 ## Limitations
 

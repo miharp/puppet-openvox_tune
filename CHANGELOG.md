@@ -8,6 +8,17 @@ Notable changes to openvox_tune are recorded here. The format follows
 
 ### Added
 
+- The `openvox_tune` class: applies the recommendation on servers no other
+  module manages. It sets `-Xms`, `-Xmx` and `-XX:ReservedCodeCacheSize` in
+  `JAVA_ARGS` with the `augeas` type the agent ships, keeping the other
+  arguments, and `max-active-instances` in its own `conf.d/openvox_tune.conf`,
+  and queues a restart of puppetserver shortly after the run when they
+  change. It fails when another `conf.d` file sets `max-active-instances`,
+  since OpenVox Server refuses to start on the duplicate. Parameters for the
+  role, reserve, heap per instance, overrides and the restart.
+- The `openvox_tune` fact: the CPUs and memory available to OpenVox Server
+  (capped by container limits), its `JAVA_ARGS`, whether its CA is enabled,
+  and which `conf.d` files set each `jruby-puppet` setting.
 - The `openvox_tune::tune` plan: reads each target's CPUs and memory and
   prints the `jruby-puppet.max-active-instances`, JVM heap and
   `-XX:ReservedCodeCacheSize` that the OpenVox Server tuning guide

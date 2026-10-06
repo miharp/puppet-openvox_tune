@@ -2,8 +2,9 @@
 
 require 'spec_helper'
 
-describe 'openvox_tune::capacity' do
-  include BoltSpec::Plans
+describe 'openvox_tune::capacity', :plan do
+  # Without the openbolt gem (bundles with OpenVox 9) these are skipped; see spec_helper.rb.
+  include BoltSpec::Plans if defined?(BoltSpec::Plans)
 
   # A slot start on a 5-minute boundary.
   let(:peak_start) { 1_791_244_800 }

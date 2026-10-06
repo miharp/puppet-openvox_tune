@@ -4,6 +4,10 @@
 
 ## Table of Contents
 
+### Classes
+
+* [`openvox_tune`](#openvox_tune): Tune OpenVox Server: JRuby instances, heap and code cache.
+
 ### Functions
 
 #### Public Functions
@@ -27,6 +31,123 @@
 
 * [`openvox_tune::capacity`](#openvox_tune--capacity): Estimate how many nodes OpenVox Server can serve, from the load it served.
 * [`openvox_tune::tune`](#openvox_tune--tune): Recommend OpenVox Server tuning settings based on the official tuning guide.
+
+## Classes
+
+### <a name="openvox_tune"></a>`openvox_tune`
+
+Sizes OpenVox Server with `openvox_tune::recommend` from the host's CPUs
+and memory, as the `openvox_tune::tune` plan does, and applies it:
+`-Xms`, `-Xmx` and `-XX:ReservedCodeCacheSize` in `JAVA_ARGS`, keeping the
+other arguments, and `jruby-puppet.max-active-instances` in its own file,
+`conf.d/openvox_tune.conf`, so the package's `puppetserver.conf` is left
+alone. When either changes, puppetserver is restarted shortly after the
+run, so that a server applying its own catalog still sends its report.
+
+For servers no other module manages. With theforeman-puppet, use the
+plan's `hiera=true` output instead: OpenVox Server refuses to start when
+two conf.d files set `max-active-instances`, so the class fails when
+another file sets it. Where OpenVox Server is not installed, the class
+does nothing and logs a warning.
+
+#### Examples
+
+##### Tune a server
+
+```puppet
+include openvox_tune
+```
+
+##### Tune the server of a deployment with compilers, leaving room for OpenVoxDB
+
+```puppet
+class { 'openvox_tune':
+  role               => 'server-with-compilers',
+  reserved_memory_mb => 6144,
+}
+```
+
+#### Parameters
+
+The following parameters are available in the `openvox_tune` class:
+
+* [`role`](#-openvox_tune--role)
+* [`reserved_memory_mb`](#-openvox_tune--reserved_memory_mb)
+* [`memory_per_jruby_mb`](#-openvox_tune--memory_per_jruby_mb)
+* [`max_active_instances`](#-openvox_tune--max_active_instances)
+* [`heap_mb`](#-openvox_tune--heap_mb)
+* [`reserved_code_cache_mb`](#-openvox_tune--reserved_code_cache_mb)
+* [`restart`](#-openvox_tune--restart)
+* [`restart_delay`](#-openvox_tune--restart_delay)
+
+##### <a name="-openvox_tune--role"></a>`role`
+
+Data type: `Optional[Enum['server', 'compiler', 'server-with-compilers']]`
+
+`server`, `compiler` or `server-with-compilers`; see
+`openvox_tune::recommend`. By default a host whose CA service is
+disabled is a compiler and any other a server. A server cannot tell it
+has compilers, so set `server-with-compilers` on it.
+
+Default value: `undef`
+
+##### <a name="-openvox_tune--reserved_memory_mb"></a>`reserved_memory_mb`
+
+Data type: `Optional[Integer[0]]`
+
+Memory to leave for the operating system and other services, in MB.
+Defaults to a quarter of the host's memory.
+
+Default value: `undef`
+
+##### <a name="-openvox_tune--memory_per_jruby_mb"></a>`memory_per_jruby_mb`
+
+Data type: `Integer[256]`
+
+Heap per JRuby instance, in MB.
+
+Default value: `512`
+
+##### <a name="-openvox_tune--max_active_instances"></a>`max_active_instances`
+
+Data type: `Optional[Integer[1]]`
+
+JRuby instances to use instead of the recommendation.
+
+Default value: `undef`
+
+##### <a name="-openvox_tune--heap_mb"></a>`heap_mb`
+
+Data type: `Optional[Integer[512]]`
+
+Heap to use instead of the recommendation, in MB.
+
+Default value: `undef`
+
+##### <a name="-openvox_tune--reserved_code_cache_mb"></a>`reserved_code_cache_mb`
+
+Data type: `Optional[Integer[32]]`
+
+Reserved code cache to use instead of the recommendation, in MB.
+
+Default value: `undef`
+
+##### <a name="-openvox_tune--restart"></a>`restart`
+
+Data type: `Boolean`
+
+Whether to restart puppetserver, when it is running, after a change.
+Without, the settings apply at its next restart.
+
+Default value: `true`
+
+##### <a name="-openvox_tune--restart_delay"></a>`restart_delay`
+
+Data type: `Integer[0]`
+
+Seconds after the change to restart puppetserver.
+
+Default value: `30`
 
 ## Functions
 

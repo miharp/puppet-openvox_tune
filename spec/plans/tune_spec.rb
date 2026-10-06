@@ -2,8 +2,9 @@
 
 require 'spec_helper'
 
-describe 'openvox_tune::tune' do
-  include BoltSpec::Plans
+describe 'openvox_tune::tune', :plan do
+  # Without the openbolt gem (bundles with OpenVox 9) these are skipped; see spec_helper.rb.
+  include BoltSpec::Plans if defined?(BoltSpec::Plans)
 
   def host_resources(cpus, memory_mb, other_services = [], puppetserver: nil)
     { 'cpus' => cpus, 'memory_mb' => memory_mb, 'other_services' => other_services, 'puppetserver' => puppetserver }

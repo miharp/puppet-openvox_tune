@@ -6,6 +6,15 @@ rescue LoadError
   # voxpupuli-test is only available in the test gem group
 end
 
+# configure_beaker installs the module on the test host with its
+# dependencies resolved from metadata.json, so the beaker task needs no
+# fixtures:prep prerequisite (which would need a local puppet binary).
+begin
+  require 'voxpupuli/acceptance/rake'
+rescue LoadError
+  # voxpupuli-acceptance is only available in the system_tests gem group
+end
+
 begin
   require 'puppet-strings/tasks'
 rescue LoadError

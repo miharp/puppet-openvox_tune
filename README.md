@@ -1,22 +1,30 @@
 # openvox_tune
 
 [![CI](https://github.com/miharp/puppet-openvox_tune/actions/workflows/ci.yml/badge.svg)](https://github.com/miharp/puppet-openvox_tune/actions/workflows/ci.yml)
+[![OpenVox compatible](https://img.shields.io/badge/OpenVox-8%20%7C%209-orange.svg)](https://voxpupuli.org/openvox/)
 [![OpenBolt](https://img.shields.io/badge/OpenBolt-5-orange.svg)](https://github.com/OpenVoxProject/openbolt)
 [![License](https://img.shields.io/github/license/miharp/puppet-openvox_tune)](https://github.com/miharp/puppet-openvox_tune/blob/main/LICENSE)
 
 [![Puppet Forge](https://img.shields.io/puppetforge/v/miharp/openvox_tune)](https://forge.puppet.com/modules/miharp/openvox_tune)
 [![Puppet Forge downloads](https://img.shields.io/puppetforge/dt/miharp/openvox_tune)](https://forge.puppet.com/modules/miharp/openvox_tune)
 
-An [OpenBolt](https://github.com/OpenVoxProject/openbolt) plan that recommends
-[OpenVox Server](https://docs.openvoxproject.org/openvox-server/latest/tuning_guide.html)
-tuning settings based on a target's CPUs and memory. Advisory only: it
-never modifies a target, it prints recommended values for you to apply via
-Hiera or your provisioning tooling.
+Sizes [OpenVox Server](https://docs.openvoxproject.org/openvox-server/latest/tuning_guide.html):
+JRuby instances, JVM heap and reserved code cache, from the tuning guide and
+the host's CPUs and memory.
+
+- The `openvox_tune::tune` [OpenBolt](https://github.com/OpenVoxProject/openbolt)
+  plan recommends the settings, beside the ones in force, and changes
+  nothing.
+- The `openvox_tune` class applies them, on servers no other module
+  manages.
+- The `openvox_tune::capacity` plan estimates how many nodes the servers can
+  serve, from the load they served.
 
 ## Requirements
 
-- [OpenBolt](https://github.com/OpenVoxProject/openbolt) 5
-- Linux targets running OpenVox Server 8 or 9, reachable by OpenBolt
+- OpenVox Server 8 or 9 on Linux.
+- For the plans, [OpenBolt](https://github.com/OpenVoxProject/openbolt) 5,
+  with the servers reachable as targets.
 
 ## Installing
 
@@ -140,6 +148,51 @@ The plan also returns the values for each target, for use from another plan.
 See [REFERENCE.md](https://github.com/miharp/puppet-openvox_tune/blob/main/REFERENCE.md)
 for the plan's parameters and return value, and for the
 `openvox_tune::recommend` function that does the sizing.
+
+## Applying the settings
+
+Assign the class to the server and to each compiler:
+
+```puppet
+include openvox_tune
+```
+
+It sizes the host as the `tune` plan does and sets `-Xms`, `-Xmx` and
+`-XX:ReservedCodeCacheSize` in `JAVA_ARGS`, keeping the other arguments, and
+`jruby-puppet.max-active-instances` in a file of its own,
+`/etc/puppetlabs/puppetserver/conf.d/openvox_tune.conf`. When either
+changes, it queues a restart of puppetserver for 30 seconds later
+(`restart_delay`), so that a server applying its own catalog finishes the
+run, report included, first. With `restart => false` the settings apply at
+the next restart.
+
+A host whose CA service is disabled is sized as a compiler. A server cannot
+tell it has compilers, so say so on it, and leave room for OpenVoxDB and
+PostgreSQL where they share the host:
+
+```puppet
+class { 'openvox_tune':
+  role               => 'server-with-compilers',
+  reserved_memory_mb => 6144,
+}
+```
+
+`max_active_instances`, `heap_mb` and `reserved_code_cache_mb` override the
+recommendation, and `memory_per_jruby_mb` changes the heap per instance it
+is sized with. See [REFERENCE.md](https://github.com/miharp/puppet-openvox_tune/blob/main/REFERENCE.md)
+for every parameter.
+
+OpenVox Server refuses to start when two files in `conf.d` set the same
+setting. If another file already sets `max-active-instances`, by hand or
+through theforeman-puppet, whose template writes all of `puppetserver.conf`,
+the class fails with a message saying which, instead of leaving puppetserver
+unable to restart. Use either this class or theforeman-puppet on a server,
+not both. Where OpenVox Server is not installed, the class does nothing and
+logs a warning.
+
+The class needs only what the agent ships: the `augeas` type, from its
+vendored `augeas_core` module, for `JAVA_ARGS`, and the
+`openvox_tune` fact for the host's CPUs, memory and current settings.
 
 ## Capacity
 

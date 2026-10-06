@@ -34,40 +34,27 @@
 
 Type: Puppet Language
 
-Applies Little's law to what the access logs measured. Each agent run held
-JRubies for `jruby-seconds-per-run` in total (catalog, file metadata,
-report), and each node runs every `run-interval-seconds`, so N JRubies can
-serve N * interval / per-run nodes when they are busy all the time, and
-the nodes seen need at least nodes * per-run / interval JRubies.
-
-Nodes are merged across servers, since a load balancer sends one node's
-runs to different compilers. The run interval is the median, over nodes
-that ran at least twice, of the time between their catalog requests; when
-no node ran twice in the window it falls back to `runinterval`.
+Applies Little's law to the JRuby load the access logs measured; see
+"Capacity" in README.md.
 
 #### `openvox_tune::capacity(Array[Hash, 1] $loads)`
 
-Applies Little's law to what the access logs measured. Each agent run held
-JRubies for `jruby-seconds-per-run` in total (catalog, file metadata,
-report), and each node runs every `run-interval-seconds`, so N JRubies can
-serve N * interval / per-run nodes when they are busy all the time, and
-the nodes seen need at least nodes * per-run / interval JRubies.
-
-Nodes are merged across servers, since a load balancer sends one node's
-runs to different compilers. The run interval is the median, over nodes
-that ran at least twice, of the time between their catalog requests; when
-no node ran twice in the window it falls back to `runinterval`.
+Applies Little's law to the JRuby load the access logs measured; see
+"Capacity" in README.md.
 
 Returns: `Hash` `jrubies`; `window-seconds`, the longest window the logs cover;
 `jruby-seconds`; `busy-jrubies`, the JRubies in use on average, and
 `utilization`, that over `jrubies`; `peak-busy-jrubies`,
 `peak-utilization` and `peak-from` (seconds since the epoch) for the
 busiest whole time slot of `bucket-seconds` (the average, and undef
-`peak-from`, when the window holds no whole slot); `nodes` and `catalog-requests`;
-`run-interval-seconds` and `run-interval-source` (`measured` or
-`runinterval`); `jruby-seconds-per-run`; `node-capacity` and
-`minimum-jrubies`, undef without agent runs in the window; and
-`status-503`.
+`peak-from`, when the window holds no whole slot); `nodes` and
+`catalog-requests`; `run-interval-seconds`, the median over nodes that
+ran at least twice of the time between their catalog requests, and
+`run-interval-source`, `measured` or `runinterval` when no node ran
+twice; `jruby-seconds-per-run`, all JRuby time over catalog requests;
+`node-capacity`, JRubies * interval / per-run, and `minimum-jrubies`,
+nodes * per-run / interval, both undef without agent runs in the window;
+and `status-503`.
 
 ##### `loads`
 
@@ -76,42 +63,32 @@ Data type: `Array[Hash, 1]`
 One hash per server or compiler: `jrubies`, its JRuby instances, and
 from the `jruby_load` task `window_seconds`, `jruby_seconds`,
 `catalog_requests`, `status_503`, `bucket_seconds`, `buckets`, `nodes`
-and `runinterval`.
+and `runinterval`. Nodes are merged across them, since a load balancer
+sends one node's runs to different compilers.
 
 ### <a name="openvox_tune--recommend"></a>`openvox_tune::recommend`
 
 Type: Puppet Language
 
-Starts from the OpenVox Server tuning guide: `num-cpus - 1` JRuby
-instances (at least 1), a heap of 512 MB plus 512 MB per instance (or
-`memory_per_jruby_mb`), and a reserved code cache of 512 MB below 6
-instances, 1 GB for 6 to 12, and 2 GB above 12. A server with compilers
-gets fewer instances: 1 below 4 CPUs, 2 below 16 and 4 from 16, since its
-compilers compile the catalogs. It then lowers the instance count until the
-heap and the code cache fit in the memory left after the reserve for the
-operating system and other services, and the host has at least 1.1 times
-the heap: OpenVox Server refuses to start with less.
+The OpenVox Server tuning guide's sizing, lowered to fit the host's memory;
+see "What it recommends and why" in README.md.
 
 #### `openvox_tune::recommend(Integer[1] $cpus, Integer[1] $memory_mb, Optional[Integer[0]] $reserved_memory_mb = undef, Integer[1] $memory_per_jruby_mb = 512, Enum['server', 'compiler', 'server-with-compilers'] $role = 'server')`
 
-Starts from the OpenVox Server tuning guide: `num-cpus - 1` JRuby
-instances (at least 1), a heap of 512 MB plus 512 MB per instance (or
-`memory_per_jruby_mb`), and a reserved code cache of 512 MB below 6
-instances, 1 GB for 6 to 12, and 2 GB above 12. A server with compilers
-gets fewer instances: 1 below 4 CPUs, 2 below 16 and 4 from 16, since its
-compilers compile the catalogs. It then lowers the instance count until the
-heap and the code cache fit in the memory left after the reserve for the
-operating system and other services, and the host has at least 1.1 times
-the heap: OpenVox Server refuses to start with less.
+The OpenVox Server tuning guide's sizing, lowered to fit the host's memory;
+see "What it recommends and why" in README.md.
 
-Returns: `Hash` `max-active-instances`, `jvm-heap-mb` and `reserved-code-cache-mb`;
-`memory-per-jruby-mb`, the heap per instance they were sized with;
-`reserved-memory-mb` and `available-memory-mb`, the memory the
-recommendation was sized for; `instance-limit`, the instances the CPUs
-and role allow before memory is counted; `limited-by`, `cpu`, `role` or
-`memory`; and `fits`, false when even one instance needs more memory
-than is available, in which case the recommendation is for one instance
-anyway.
+Returns: `Hash` `max-active-instances`: `num-cpus - 1` (at least 1), or the role's
+limit, lowered until the heap and code cache fit in the memory left
+after the reserve and the host has at least 1.1 times the heap, which
+OpenVox Server checks at startup. `jvm-heap-mb`: 512 MB plus
+`memory_per_jruby_mb` per instance. `reserved-code-cache-mb`: 512 MB
+below 6 instances, 1024 MB for 6 to 12, 2048 MB above.
+`memory-per-jruby-mb`, `reserved-memory-mb` and `available-memory-mb`:
+what it was sized with. `instance-limit`: the instances the CPUs and
+role allow before memory is counted. `limited-by`: `cpu`, `role` or
+`memory`. `fits`: false when even one instance needs more memory than is
+available, in which case the recommendation is for one instance anyway.
 
 ##### `cpus`
 
@@ -145,7 +122,8 @@ Data type: `Enum['server', 'compiler', 'server-with-compilers']`
 
 `server` for a server that compiles catalogs itself, `compiler` for a
 compiler (sized the same way), or `server-with-compilers` for the CA
-server of a deployment whose compilers compile the catalogs.
+server of a deployment whose compilers compile the catalogs, which gets
+1 instance below 4 CPUs, 2 below 16 and 4 from 16.
 
 ## Tasks
 

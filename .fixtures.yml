@@ -1,0 +1,6 @@
+---
+# augeas_core ships inside openvox-agent (vendor_modules), so the module
+# does not depend on it; the unit tests run on the openvox gem, which lacks it.
+fixtures:
+  forge_modules:
+    augeas_core: puppetlabs/augeas_core

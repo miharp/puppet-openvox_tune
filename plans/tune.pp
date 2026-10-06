@@ -42,7 +42,8 @@
 # heap per instance by the tuning guide's formula, `environment-timeout`, in
 # seconds or `unlimited`, `max-requests-per-instance`, `max-queued-requests`
 # and `multithreaded`, each undef when not known or not set), `matches-current`, and
-# `hiera`, the same settings as Hiera data for theforeman-puppet.
+# `hiera`, the same settings as Hiera data for the `openvox_tune` class and
+# for theforeman-puppet, under `openvox_tune` and `theforeman-puppet`.
 #
 # @param targets
 #   The OpenVox Server node(s) to inspect.
@@ -64,8 +65,12 @@
 #   `memory_per_jruby_mb`.
 #
 # @param hiera
-#   Also print each target's settings as Hiera data for theforeman-puppet's
-#   `puppet` class, to paste into the data for servers that module manages.
+#   Also print the settings as Hiera data: `openvox_tune` for the
+#   `openvox_tune` class, `theforeman-puppet` for theforeman-puppet's `puppet`
+#   class. Targets given the same values share one block, which lists them,
+#   so that a fleet of compilers built alike can take its values from one
+#   level of the hierarchy, such as their role; the plan notes when the
+#   compilers in the run get different values.
 #
 # @example Recommend settings for a server
 #   bolt plan run openvox_tune::tune --targets puppet.example.com
@@ -76,14 +81,17 @@
 # @example Keep the heap per JRuby instance the servers have now
 #   bolt plan run openvox_tune::tune --targets servers use_current_memory_per_jruby=true
 #
+# @example Print Hiera data for the openvox_tune class
+#   bolt plan run openvox_tune::tune --targets puppet.example.com hiera=openvox_tune
+#
 # @example Print Hiera data for servers managed by theforeman-puppet
-#   bolt plan run openvox_tune::tune --targets puppet.example.com hiera=true
+#   bolt plan run openvox_tune::tune --targets puppet.example.com hiera=theforeman-puppet
 plan openvox_tune::tune(
   TargetSpec             $targets,
   Optional[Integer[0]]   $reserved_memory_mb           = undef,
   Optional[Integer[256]] $memory_per_jruby_mb          = undef,
   Boolean                $use_current_memory_per_jruby = false,
-  Boolean                $hiera                        = false,
+  Optional[Enum['openvox_tune', 'theforeman-puppet']] $hiera = undef,
 ) {
   # theforeman-puppet passes -Djruby.logger.class itself only while
   # server_jvm_extra_args is unset, so the Hiera data has to repeat it.
@@ -145,13 +153,20 @@ plan openvox_tune::tune(
       'current'         => $current,
       'matches-current' => $matches_current,
       'hiera'           => {
-        'puppet::server_max_active_instances' => $settings['max-active-instances'],
-        'puppet::server_jvm_min_heap_size'    => "${settings['jvm-heap-mb']}m",
-        'puppet::server_jvm_max_heap_size'    => "${settings['jvm-heap-mb']}m",
-        'puppet::server_jvm_extra_args'       => [
-          $jruby_logger_arg,
-          "-XX:ReservedCodeCacheSize=${settings['reserved-code-cache-mb']}m",
-        ],
+        'openvox_tune'      => {
+          'openvox_tune::max_active_instances'   => $settings['max-active-instances'],
+          'openvox_tune::heap_mb'                => $settings['jvm-heap-mb'],
+          'openvox_tune::reserved_code_cache_mb' => $settings['reserved-code-cache-mb'],
+        },
+        'theforeman-puppet' => {
+          'puppet::server_max_active_instances' => $settings['max-active-instances'],
+          'puppet::server_jvm_min_heap_size'    => "${settings['jvm-heap-mb']}m",
+          'puppet::server_jvm_max_heap_size'    => "${settings['jvm-heap-mb']}m",
+          'puppet::server_jvm_extra_args'       => [
+            $jruby_logger_arg,
+            "-XX:ReservedCodeCacheSize=${settings['reserved-code-cache-mb']}m",
+          ],
+        },
       },
     }
     $recommendation
@@ -220,20 +235,51 @@ plan openvox_tune::tune(
 
     out::message("jruby-puppet.max-active-instances: ${r['max-active-instances']}")
     out::message("JAVA_ARGS: -Xms${heap}m -Xmx${heap}m -XX:ReservedCodeCacheSize=${code_cache}m")
+    out::message('')
+  }
 
-    if $hiera {
-      $data = $r['hiera']
+  if $hiera =~ String {
+    # Targets given the same values share one block, so that a fleet of
+    # compilers built alike can take them from one level of the hierarchy.
+    $groups = $recommendations.group_by |$r| { $r['hiera'][$hiera] }
+
+    if $hiera == 'openvox_tune' {
+      out::message('# Hiera for the openvox_tune class.')
+    } else {
       out::message("# Hiera for theforeman-puppet. Setting server_jvm_extra_args replaces the module's own")
       out::message("# ${jruby_logger_arg}, so it is repeated here; add any other arguments you pass.")
-      out::message("puppet::server_max_active_instances: ${data['puppet::server_max_active_instances']}")
-      out::message("puppet::server_jvm_min_heap_size: ${data['puppet::server_jvm_min_heap_size']}")
-      out::message("puppet::server_jvm_max_heap_size: ${data['puppet::server_jvm_max_heap_size']}")
-      out::message('puppet::server_jvm_extra_args:')
-      $data['puppet::server_jvm_extra_args'].each |$arg| {
-        out::message("  - '${arg}'")
+    }
+
+    $compiler_sets = $groups.filter |$data, $members| { $members.any |$r| { $r['role'] == 'compiler' } }.length
+    if $compiler_sets > 1 {
+      out::message(@("MSG"/L))
+        # Note: the compilers get ${compiler_sets} different sets of values, so one set \
+        for all of them fits only some; build them alike, or give each set its own data.
+        |- MSG
+    }
+
+    $groups.each |$data, $members| {
+      $names = $members.map |$r| { $r['target'] }
+      if $names.length == 1 {
+        out::message("# For ${names[0]}:")
+      } else {
+        out::message("# For ${names.join(', ')} (${names.length} targets):")
+      }
+
+      if $hiera == 'openvox_tune' {
+        $data.each |$key, $value| {
+          out::message("${key}: ${value}")
+        }
+      } else {
+        out::message("puppet::server_max_active_instances: ${data['puppet::server_max_active_instances']}")
+        out::message("puppet::server_jvm_min_heap_size: ${data['puppet::server_jvm_min_heap_size']}")
+        out::message("puppet::server_jvm_max_heap_size: ${data['puppet::server_jvm_max_heap_size']}")
+        out::message('puppet::server_jvm_extra_args:')
+        $data['puppet::server_jvm_extra_args'].each |$arg| {
+          out::message("  - '${arg}'")
+        }
       }
     }
-    out::message('')
   }
 
   return $recommendations

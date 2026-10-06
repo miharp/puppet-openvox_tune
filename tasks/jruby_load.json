@@ -17,6 +17,6 @@
   },
   "supports_noop": false,
   "files": [
-    "openvox_tune/files/access_log.rb"
+    "openvox_tune/lib/puppet_x/openvox_tune/access_log.rb"
   ]
 }

@@ -4,6 +4,6 @@
   "parameters": {},
   "supports_noop": false,
   "files": [
-    "openvox_tune/files/server_settings.rb"
+    "openvox_tune/lib/puppet_x/openvox_tune/server_settings.rb"
   ]
 }

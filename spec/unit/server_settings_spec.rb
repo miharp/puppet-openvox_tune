@@ -2,11 +2,11 @@
 
 require 'fileutils'
 require 'tmpdir'
-require_relative '../../files/server_settings'
+require_relative '../../lib/puppet_x/openvox_tune/server_settings'
 
 # environment_timeout needs a process whose Puppet settings are not yet
 # initialized, so spec/container covers it.
-describe OpenvoxTune::ServerSettings do
+describe PuppetX::OpenvoxTune::ServerSettings do
   let(:confd) { Dir.mktmpdir('openvox-tune-confd') }
 
   after do
@@ -39,6 +39,17 @@ describe OpenvoxTune::ServerSettings do
     conf('puppetserver.conf', %(jruby-puppet: {\n  multithreaded: "false"\n  max-active-instances: "many"\n}\n))
 
     expect(described_class.jruby_puppet(confd)).to include('multithreaded' => false, 'max_active_instances' => nil)
+  end
+
+  it 'lists the files that set each setting, skipping one that does not parse' do
+    conf('puppetserver.conf', "jruby-puppet: {\n  max-requests-per-instance: 0\n  max-active-instances: 2\n}\n")
+    conf('openvox_tune.conf', "jruby-puppet: {\n  max-active-instances: 3\n}\n")
+    conf('zz-broken.conf', "jruby-puppet { max-active-instances: \n")
+
+    expect(described_class.jruby_puppet_sources(confd)).to eq(
+      'max-active-instances' => ['openvox_tune.conf', 'puppetserver.conf'],
+      'max-requests-per-instance' => ['puppetserver.conf'],
+    )
   end
 
   it 'reports nothing set without a conf.d' do

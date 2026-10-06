@@ -4,6 +4,10 @@
 
 ## Table of Contents
 
+### Classes
+
+* [`openvox_tune`](#openvox_tune): Apply OpenVox Server tuning settings: JRuby instances, heap and code cache.
+
 ### Functions
 
 #### Public Functions
@@ -20,13 +24,111 @@
 
 ### Tasks
 
-* [`host_resources`](#host_resources): Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, any OpenVoxDB or PostgreSQL services 
+* [`host_resources`](#host_resources): Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, any OpenVoxDB or PostgreSQL services
 * [`jruby_load`](#jruby_load): Measure how much JRuby time OpenVox Server used over a window, from the jruby.borrow-time its access log records for every request: JRuby-sec
 
 ### Plans
 
 * [`openvox_tune::capacity`](#openvox_tune--capacity): Estimate how many nodes OpenVox Server can serve, from the load it served.
 * [`openvox_tune::tune`](#openvox_tune--tune): Recommend OpenVox Server tuning settings based on the official tuning guide.
+
+## Classes
+
+### <a name="openvox_tune"></a>`openvox_tune`
+
+Applies the values it is given, usually from Hiera, and nothing else: it
+does not size the host itself, so the settings change only when the data
+does. The `openvox_tune::tune` plan recommends the values and, with
+`hiera=openvox_tune`, prints them as Hiera data for this class.
+
+`heap_mb` sets `-Xms` and `-Xmx`, and `reserved_code_cache_mb` sets
+`-XX:ReservedCodeCacheSize`, in `JAVA_ARGS`, keeping the other arguments;
+unset, they are left as they are. `max_active_instances` sets
+`jruby-puppet.max-active-instances` in a file of its own,
+`conf.d/openvox_tune.conf`, so the package's `puppetserver.conf` is left
+alone; unset, that file is removed and the server's default applies. When
+a setting changes, puppetserver is restarted shortly after the run, so
+that a server applying its own catalog still sends its report.
+
+The class fails rather than leave puppetserver unable to restart: when
+another conf.d file also sets `max-active-instances`, and when the host has
+less memory than OpenVox Server needs to start with `heap_mb`, 1.1 times
+the heap.
+
+For servers no other module manages. With theforeman-puppet, use the
+plan's `hiera=theforeman-puppet` output instead. Where OpenVox Server is not
+installed, the class does nothing and logs a warning.
+
+#### Examples
+
+##### Hiera data for a server, from the plan's `hiera=openvox_tune` output
+
+```puppet
+openvox_tune::max_active_instances: 7
+openvox_tune::heap_mb: 4096
+openvox_tune::reserved_code_cache_mb: 1024
+```
+
+##### Apply settings in a manifest
+
+```puppet
+class { 'openvox_tune':
+  max_active_instances   => 7,
+  heap_mb                => 4096,
+  reserved_code_cache_mb => 1024,
+}
+```
+
+#### Parameters
+
+The following parameters are available in the `openvox_tune` class:
+
+* [`max_active_instances`](#-openvox_tune--max_active_instances)
+* [`heap_mb`](#-openvox_tune--heap_mb)
+* [`reserved_code_cache_mb`](#-openvox_tune--reserved_code_cache_mb)
+* [`restart`](#-openvox_tune--restart)
+* [`restart_delay`](#-openvox_tune--restart_delay)
+
+##### <a name="-openvox_tune--max_active_instances"></a>`max_active_instances`
+
+Data type: `Optional[Integer[1]]`
+
+JRuby instances, `jruby-puppet.max-active-instances`.
+
+Default value: `undef`
+
+##### <a name="-openvox_tune--heap_mb"></a>`heap_mb`
+
+Data type: `Optional[Integer[512]]`
+
+JVM heap, in MB, set as both `-Xms` and `-Xmx`.
+
+Default value: `undef`
+
+##### <a name="-openvox_tune--reserved_code_cache_mb"></a>`reserved_code_cache_mb`
+
+Data type: `Optional[Integer[32]]`
+
+JVM reserved code cache, in MB, `-XX:ReservedCodeCacheSize`.
+
+Default value: `undef`
+
+##### <a name="-openvox_tune--restart"></a>`restart`
+
+Data type: `Boolean`
+
+Whether to restart puppetserver, when it is running, after a change.
+Without, the settings apply at its next restart.
+
+Default value: `true`
+
+##### <a name="-openvox_tune--restart_delay"></a>`restart_delay`
+
+Data type: `Integer[0]`
+
+Seconds after the change to restart puppetserver.
+
+Default value: `30`
 
 ## Functions
 
@@ -276,7 +378,8 @@ undef when unset, `effective-max-active-instances`, `jvm-min-heap-mb`,
 heap per instance by the tuning guide's formula, `environment-timeout`, in
 seconds or `unlimited`, `max-requests-per-instance`, `max-queued-requests`
 and `multithreaded`, each undef when not known or not set), `matches-current`, and
-`hiera`, the same settings as Hiera data for theforeman-puppet.
+`hiera`, the same settings as Hiera data for the `openvox_tune` class and
+for theforeman-puppet, under `openvox_tune` and `theforeman-puppet`.
 
 #### Examples
 
@@ -298,10 +401,16 @@ bolt plan run openvox_tune::tune --targets puppet.example.com reserved_memory_mb
 bolt plan run openvox_tune::tune --targets servers use_current_memory_per_jruby=true
 ```
 
+##### Print Hiera data for the openvox_tune class
+
+```puppet
+bolt plan run openvox_tune::tune --targets puppet.example.com hiera=openvox_tune
+```
+
 ##### Print Hiera data for servers managed by theforeman-puppet
 
 ```puppet
-bolt plan run openvox_tune::tune --targets puppet.example.com hiera=true
+bolt plan run openvox_tune::tune --targets puppet.example.com hiera=theforeman-puppet
 ```
 
 #### Parameters
@@ -353,10 +462,13 @@ Default value: `false`
 
 ##### <a name="-openvox_tune--tune--hiera"></a>`hiera`
 
-Data type: `Boolean`
+Data type: `Optional[Enum['openvox_tune', 'theforeman-puppet']]`
 
-Also print each target's settings as Hiera data for theforeman-puppet's
-`puppet` class, to paste into the data for servers that module manages.
+Also print the settings as Hiera data: `openvox_tune` for the
+`openvox_tune` class, `theforeman-puppet` for theforeman-puppet's `puppet`
+class. Targets given the same values share one block, which lists them,
+so that a fleet of compilers built alike can take its values from one
+level of the hierarchy, such as their role; the plan notes when the
+compilers in the run get different values.
 
-Default value: `false`
-
+Default value: `undef`

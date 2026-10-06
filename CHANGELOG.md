@@ -8,6 +8,20 @@ Notable changes to openvox_tune are recorded here. The format follows
 
 ### Added
 
+- The `openvox_tune` class: applies the settings it is given, usually Hiera
+  data from the plan's `hiera=openvox_tune` output, on servers no other
+  module manages; it does not size the host itself. `heap_mb` and
+  `reserved_code_cache_mb` set `-Xms`, `-Xmx` and
+  `-XX:ReservedCodeCacheSize` in `JAVA_ARGS` with the `augeas` type the agent
+  ships, keeping the other arguments, and `max_active_instances` sets
+  `max-active-instances` in its own `conf.d/openvox_tune.conf`. It queues a
+  restart of puppetserver shortly after the run when they change. It fails
+  when another `conf.d` file sets `max-active-instances`, or when the host
+  has less memory than 1.1 times `heap_mb`, since OpenVox Server refuses to
+  start in either case.
+- The `openvox_tune` fact: the memory available to OpenVox Server (capped by
+  a container's limit), its `JAVA_ARGS`, and which `conf.d` files set each
+  `jruby-puppet` setting.
 - The `openvox_tune::tune` plan: reads each target's CPUs and memory and
   prints the `jruby-puppet.max-active-instances`, JVM heap and
   `-XX:ReservedCodeCacheSize` that the OpenVox Server tuning guide
@@ -25,8 +39,11 @@ Notable changes to openvox_tune are recorded here. The format follows
   (`use_current_memory_per_jruby`). Run against a deployment with
   compilers (hosts whose CA service is disabled), it gives the server only
   1 to 4 instances, since the compilers compile the catalogs. With
-  `hiera=true` it also prints the
-  settings as Hiera data for theforeman-puppet's `puppet` class. It warns
+  `hiera=openvox_tune` or `hiera=theforeman-puppet` it also prints the
+  settings as Hiera data for the `openvox_tune` class or theforeman-puppet's
+  `puppet` class, one block per set of values with the targets it is for, so
+  that a fleet of compilers built alike gets one, and notes compilers that
+  get different values; it returns both modules' data. It warns
   when a host is too small for one instance, and notes OpenVoxDB or
   PostgreSQL running on the same host. Advisory only; it changes nothing on
   the targets.

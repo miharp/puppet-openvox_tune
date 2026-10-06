@@ -15,8 +15,9 @@ the host's CPUs and memory.
 - The `openvox_tune::tune` [OpenBolt](https://github.com/OpenVoxProject/openbolt)
   plan recommends the settings, beside the ones in force, and changes
   nothing.
-- The `openvox_tune` class applies them, on servers no other module
-  manages.
+- The `openvox_tune` class applies the values you commit to Hiera, on
+  servers no other module manages. It never sizes a host itself, so a
+  server's settings change only when its data does.
 - The `openvox_tune::capacity` plan estimates how many nodes the servers can
   serve, from the load they served.
 
@@ -121,11 +122,11 @@ topology. Run against the server alone, it is sized as a standalone server.
 
 If [theforeman-puppet](https://forge.puppet.com/modules/theforeman/puppet)
 manages the server, changes made by hand are reverted on its next run. Pass
-`hiera=true` to also get the settings as Hiera data for that module's
-`puppet` class, to paste into the server's node data:
+`hiera=theforeman-puppet` to also get the settings as Hiera data for that
+module's `puppet` class, to commit to the server's node data:
 
 ```shell
-bolt plan run openvox_tune::tune --targets puppet.example.com hiera=true
+bolt plan run openvox_tune::tune --targets puppet.example.com hiera=theforeman-puppet
 ```
 
 ```yaml
@@ -151,48 +152,97 @@ for the plan's parameters and return value, and for the
 
 ## Applying the settings
 
-Assign the class to the server and to each compiler:
+The `openvox_tune` class applies the settings you give it, and nothing else:
+it does not size the host, so a server's settings change only when its data
+does, through your usual review. Get the values from the plan with
+`hiera=openvox_tune`. Run it against the whole deployment; targets that get
+the same values share one block:
+
+```shell
+bolt plan run openvox_tune::tune --targets puppet.example.com,compiler01.example.com,compiler02.example.com,compiler03.example.com hiera=openvox_tune
+```
+
+```text
+# Hiera for the openvox_tune class.
+# For puppet.example.com:
+openvox_tune::max_active_instances: 2
+openvox_tune::heap_mb: 1536
+openvox_tune::reserved_code_cache_mb: 512
+# For compiler01.example.com, compiler02.example.com, compiler03.example.com (3 targets):
+openvox_tune::max_active_instances: 7
+openvox_tune::heap_mb: 4096
+openvox_tune::reserved_code_cache_mb: 1024
+```
+
+Commit each block at a level of your hierarchy that the targets it lists
+share. Compilers built alike, as these are with 8 CPUs and 16 GB of memory
+each, get one set of values, so however many there are, it goes in once, at
+a level for all of them such as their role. The server's goes in its node
+data. With a control repo `hiera.yaml` that has a level by role, here from
+the `pp_role` certificate extension:
+
+```yaml
+---
+version: 5
+defaults:
+  datadir: data
+  data_hash: yaml_data
+hierarchy:
+  - name: Per-node data
+    path: nodes/%{trusted.certname}.yaml
+  - name: Per-role data
+    path: roles/%{trusted.extensions.pp_role}.yaml
+  - name: Common data
+    path: common.yaml
+```
+
+the compilers' block goes in `data/roles/compiler.yaml` and the server's in
+`data/nodes/puppet.example.com.yaml`. Node data overrides role data, so a
+compiler that differs can have its own.
+
+When the compilers in the run do not all get the same values, the plan
+prints a block for each set and notes it. Values sized for a larger compiler
+can be too much for a smaller one; the class refuses a heap the host cannot
+start with, but not every mismatch. Build the compilers alike, or give the
+odd ones node data of their own. The module ships no Hiera data of its own,
+since values there would apply to every host that includes the class.
+
+Assign the class to the server and the compilers:
 
 ```puppet
 include openvox_tune
 ```
 
-It sizes the host as the `tune` plan does and sets `-Xms`, `-Xmx` and
-`-XX:ReservedCodeCacheSize` in `JAVA_ARGS`, keeping the other arguments, and
-`jruby-puppet.max-active-instances` in a file of its own,
-`/etc/puppetlabs/puppetserver/conf.d/openvox_tune.conf`. When either
-changes, it queues a restart of puppetserver for 30 seconds later
-(`restart_delay`), so that a server applying its own catalog finishes the
-run, report included, first. With `restart => false` the settings apply at
-the next restart.
+`heap_mb` sets `-Xms` and `-Xmx`, and `reserved_code_cache_mb` sets
+`-XX:ReservedCodeCacheSize`, in `JAVA_ARGS`, keeping the other arguments.
+`max_active_instances` sets `jruby-puppet.max-active-instances` in a file
+of its own, `/etc/puppetlabs/puppetserver/conf.d/openvox_tune.conf`, so the
+package's `puppetserver.conf` is left alone. Each is optional: without
+`heap_mb` or `reserved_code_cache_mb` that part of `JAVA_ARGS` is left as it
+is, and without `max_active_instances` the class removes its file and the
+server's default applies. The plan always gives all three, sized together;
+set them together.
 
-A host whose CA service is disabled is sized as a compiler. A server cannot
-tell it has compilers, so say so on it, and leave room for OpenVoxDB and
-PostgreSQL where they share the host:
+When a setting changes, the class queues a restart of puppetserver for 30
+seconds later (`restart_delay`), so that a server applying its own catalog
+finishes the run, report included, first. With `restart => false` the
+settings apply at the next restart.
 
-```puppet
-class { 'openvox_tune':
-  role               => 'server-with-compilers',
-  reserved_memory_mb => 6144,
-}
-```
+The class fails rather than leave puppetserver unable to restart:
 
-`max_active_instances`, `heap_mb` and `reserved_code_cache_mb` override the
-recommendation, and `memory_per_jruby_mb` changes the heap per instance it
-is sized with. See [REFERENCE.md](https://github.com/miharp/puppet-openvox_tune/blob/main/REFERENCE.md)
-for every parameter.
+- OpenVox Server refuses to start when two files in `conf.d` set the same
+  setting. If another file already sets `max-active-instances`, by hand or
+  through theforeman-puppet, whose template writes all of
+  `puppetserver.conf`, the class says which. Use either this class or
+  theforeman-puppet on a server, not both.
+- OpenVox Server refuses to start with less memory than 1.1 times its heap.
+  If the host has less, for example after being resized, the class says so
+  instead of applying `heap_mb`. Run the plan again for new values.
 
-OpenVox Server refuses to start when two files in `conf.d` set the same
-setting. If another file already sets `max-active-instances`, by hand or
-through theforeman-puppet, whose template writes all of `puppetserver.conf`,
-the class fails with a message saying which, instead of leaving puppetserver
-unable to restart. Use either this class or theforeman-puppet on a server,
-not both. Where OpenVox Server is not installed, the class does nothing and
-logs a warning.
-
-The class needs only what the agent ships: the `augeas` type, from its
-vendored `augeas_core` module, for `JAVA_ARGS`, and the
-`openvox_tune` fact for the host's CPUs, memory and current settings.
+Where OpenVox Server is not installed, the class does nothing and logs a
+warning. It needs only what the agent ships: the `augeas` type, from its
+vendored `augeas_core` module, for `JAVA_ARGS`, and the `openvox_tune` fact
+for the host's memory and current settings.
 
 ## Capacity
 

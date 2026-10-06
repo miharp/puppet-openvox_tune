@@ -21,36 +21,31 @@ describe 'openvox_tune class and fact' do
     JSON.parse(out)['openvox_tune']
   end
 
-  def apply
-    "puppet apply --modulepath /installdir --detailed-exitcodes -e \"class { 'openvox_tune': restart => false }\""
+  def apply(params = 'max_active_instances => 3, heap_mb => 2048, reserved_code_cache_mb => 512')
+    "puppet apply --modulepath /installdir --detailed-exitcodes -e \"class { 'openvox_tune': #{params}, restart => false }\""
   end
 
   it 'reports the packaged server' do
     result = fact
 
-    expect(result['cpus']).to be_a(Integer).and be_positive
     expect(result['memory_mb']).to be_a(Integer).and be_positive
     expect(result['defaults_file']).to match(%r{\A/etc/(default|sysconfig)/puppetserver\z})
     expect(result['java_args']).to match(%r{-Xmx2g})
-    expect(result['ca_enabled']).to be(true)
     expect(result['jruby_puppet']).not_to include('max-active-instances')
   end
 
-  it 'reports a compiler and container limits' do
-    result = fact(disable_ca, docker_args: ['--memory=3g', '--cpus=1.5'])
-
-    expect(result).to include('ca_enabled' => false, 'cpus' => 2, 'memory_mb' => 3072)
+  it 'reports a container\'s memory limit' do
+    expect(fact(docker_args: ['--memory=3g'])).to include('memory_mb' => 3072)
   end
 
-  it 'applies the recommendation, keeping the other JAVA_ARGS, and changes nothing the second time' do
-    out = run(<<~SH, docker_args: ['--memory=8g', '--cpus=4'])
+  it 'applies the values, keeping the other JAVA_ARGS, and changes nothing the second time' do
+    out = run(<<~SH)
       #{apply}; echo "first: $?"
       #{apply}; echo "second: $?"
       #{ContainerHelpers::DEFAULTS_LINE}; grep '^JAVA_ARGS=' "$d"
       cat #{ContainerHelpers::CONFD}/openvox_tune.conf
     SH
 
-    # 4 CPUs and 8192 MB: 3 instances, 2048 MB of heap, 512 MB of code cache.
     expect(out).to match(%r{^first: 2$}) # changes applied
     expect(out).to match(%r{^second: 0$}) # nothing left to change
     expect(out).to match(%r{^JAVA_ARGS="-Xms2048m -Xmx2048m .*-XX:ReservedCodeCacheSize=512m"$})
@@ -67,5 +62,14 @@ describe 'openvox_tune class and fact' do
     expect(out).to match(%r{max-active-instances is already set in tuning.conf})
     expect(out).to match(%r{^exit: 1$})
     expect(out).not_to include('openvox_tune.conf written')
+  end
+
+  it 'fails when the host has too little memory to start with the heap' do
+    out = run(<<~SH, docker_args: ['--memory=2g'])
+      #{apply('heap_mb => 2048')} 2>&1; echo "exit: $?"
+    SH
+
+    expect(out).to match(%r{refuses to start with 2048 MB of heap on this host's 2048 MB of memory})
+    expect(out).to match(%r{^exit: 1$})
   end
 end

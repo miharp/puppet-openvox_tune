@@ -1,31 +1,17 @@
 # frozen_string_literal: true
 
-require 'etc'
 require 'open3'
 
 module PuppetX
   module OpenvoxTune
     # What the openvox_tune fact reports about an OpenVox Server host: the
-    # CPUs and memory available to it, capped by a container's CPU quota and
-    # memory limit as in the host_resources task, its JAVA_ARGS, and whether
-    # its CA service is enabled. Paths are taken under root, for the specs.
+    # memory available to it, capped by a container's memory limit as in the
+    # host_resources task, and its JAVA_ARGS. Paths are taken under root, for
+    # the specs.
     module Host
       DEFAULTS_FILES = ['/etc/default/puppetserver', '/etc/sysconfig/puppetserver'].freeze
-      CA_CFG = '/etc/puppetlabs/puppetserver/services.d/ca.cfg'
 
       module_function
-
-      # Etc.nprocessors honours CPU affinity and cpusets. A container started
-      # with a CPU quota still sees every CPU; the host's root cgroup has no
-      # cpu.max, so on a VM or bare metal the quota changes nothing.
-      def cpus(root: '/', nprocessors: Etc.nprocessors)
-        quota, period = read(root, '/sys/fs/cgroup/cpu.max')&.split
-        return nprocessors if quota.nil? || quota == 'max'
-
-        [nprocessors, (Integer(quota) + Integer(period) - 1) / Integer(period)].min
-      rescue ArgumentError
-        nprocessors
-      end
 
       # MemTotal, capped by a container's memory limit, since a container sees
       # the host's /proc/meminfo. The host's root cgroup has no memory.max (v2)
@@ -58,17 +44,6 @@ module PuppetX
           'bash', '-c', 'set +eu; . "$1" >/dev/null 2>&1; printf %s "${JAVA_ARGS:-}"', 'java_args', file
         )
         status.success? ? out : nil
-      end
-
-      # Compilers comment out the CA service in ca.cfg and enable the disabled
-      # one instead (ovadm and theforeman-puppet both do). nil without ca.cfg.
-      def ca_enabled(root: '/')
-        cfg = read(root, CA_CFG)
-        return nil if cfg.nil?
-        return true if cfg.match?(%r{^\s*puppetlabs\.services\.ca\.certificate-authority-service/})
-        return false if cfg.match?(%r{^\s*puppetlabs\.services\.ca\.certificate-authority-disabled-service/})
-
-        nil
       end
 
       def read(root, file)

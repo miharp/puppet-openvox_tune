@@ -65,13 +65,20 @@ describe 'openvox_tune::tune', :plan do
           'current' => nil,
           'matches-current' => false,
           'hiera' => {
-            'puppet::server_max_active_instances' => 7,
-            'puppet::server_jvm_min_heap_size' => '4096m',
-            'puppet::server_jvm_max_heap_size' => '4096m',
-            'puppet::server_jvm_extra_args' => [
-              '-Djruby.logger.class=com.puppetlabs.jruby_utils.jruby.Slf4jLogger',
-              '-XX:ReservedCodeCacheSize=1024m',
-            ],
+            'openvox_tune' => {
+              'openvox_tune::max_active_instances' => 7,
+              'openvox_tune::heap_mb' => 4096,
+              'openvox_tune::reserved_code_cache_mb' => 1024,
+            },
+            'theforeman-puppet' => {
+              'puppet::server_max_active_instances' => 7,
+              'puppet::server_jvm_min_heap_size' => '4096m',
+              'puppet::server_jvm_max_heap_size' => '4096m',
+              'puppet::server_jvm_extra_args' => [
+                '-Djruby.logger.class=com.puppetlabs.jruby_utils.jruby.Slf4jLogger',
+                '-XX:ReservedCodeCacheSize=1024m',
+              ],
+            },
           },
         },
       ],
@@ -132,16 +139,35 @@ describe 'openvox_tune::tune', :plan do
   end
 
   context 'with hiera' do
-    let(:hiera_header) { '# Hiera for theforeman-puppet. Setting server_jvm_extra_args replaces the module\'s own' }
+    let(:class_header) { '# Hiera for the openvox_tune class.' }
+    let(:foreman_header) { '# Hiera for theforeman-puppet. Setting server_jvm_extra_args replaces the module\'s own' }
+
+    it 'prints the settings as Hiera data for the openvox_tune class' do
+      expect_task('openvox_tune::host_resources')
+        .with_targets('puppet.example.com')
+        .always_return(host_resources(8, 16_000))
+      [
+        class_header,
+        '# For puppet.example.com:',
+        'openvox_tune::max_active_instances: 7',
+        'openvox_tune::heap_mb: 4096',
+        'openvox_tune::reserved_code_cache_mb: 1024',
+      ].each { |line| expect_out_message.with_params(line) }
+      expect_out_message.with_params(foreman_header).not_be_called
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com', 'hiera' => 'openvox_tune')
+      expect(result).to be_ok
+    end
 
     it 'prints the settings as Hiera data for theforeman-puppet' do
       expect_task('openvox_tune::host_resources')
         .with_targets('puppet.example.com')
         .always_return(host_resources(8, 16_000))
       [
-        hiera_header,
+        foreman_header,
         '# -Djruby.logger.class=com.puppetlabs.jruby_utils.jruby.Slf4jLogger, so it is repeated here; ' \
         'add any other arguments you pass.',
+        '# For puppet.example.com:',
         'puppet::server_max_active_instances: 7',
         'puppet::server_jvm_min_heap_size: 4096m',
         'puppet::server_jvm_max_heap_size: 4096m',
@@ -150,19 +176,74 @@ describe 'openvox_tune::tune', :plan do
         "  - '-XX:ReservedCodeCacheSize=1024m'",
       ].each { |line| expect_out_message.with_params(line) }
 
-      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com', 'hiera' => true)
+      expect_out_message.with_params(class_header).not_be_called
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com', 'hiera' => 'theforeman-puppet')
       expect(result).to be_ok
+    end
+
+    context 'with a fleet of compilers' do
+      def server
+        host_resources(8, 16_000, puppetserver: puppetserver)
+      end
+
+      def compiler(cpus = 8, memory_mb = 16_000)
+        host_resources(cpus, memory_mb, puppetserver: puppetserver(ca_enabled: false))
+      end
+
+      let(:mixed_fleet) do
+        '# Note: the compilers get 2 different sets of values, so one set ' \
+          'for all of them fits only some; build them alike, or give each set its own data.'
+      end
+
+      it 'prints the values once for the compilers built alike' do
+        expect_task('openvox_tune::host_resources').return_for_targets(
+          'puppet.example.com' => server,
+          'compiler01.example.com' => compiler,
+          'compiler02.example.com' => compiler,
+        )
+        expect_out_message.with_params('# For puppet.example.com:').be_called_times(1)
+        expect_out_message.with_params('openvox_tune::max_active_instances: 2').be_called_times(1)
+        expect_out_message.with_params('# For compiler01.example.com, compiler02.example.com (2 targets):').be_called_times(1)
+        expect_out_message.with_params('openvox_tune::max_active_instances: 7').be_called_times(1)
+        expect_out_message.with_params(mixed_fleet).not_be_called
+
+        result = run_plan(
+          'openvox_tune::tune',
+          'targets' => ['puppet.example.com', 'compiler01.example.com', 'compiler02.example.com'], 'hiera' => 'openvox_tune',
+        )
+        expect(result).to be_ok
+      end
+
+      it 'notes compilers that get different values' do
+        expect_task('openvox_tune::host_resources').return_for_targets(
+          'puppet.example.com' => server,
+          'compiler01.example.com' => compiler,
+          'compiler02.example.com' => compiler(4, 8000),
+        )
+        expect_out_message.with_params(mixed_fleet)
+        expect_out_message.with_params('# For compiler01.example.com:')
+        expect_out_message.with_params('# For compiler02.example.com:')
+        expect_out_message.with_params('openvox_tune::max_active_instances: 3')
+
+        result = run_plan(
+          'openvox_tune::tune',
+          'targets' => ['puppet.example.com', 'compiler01.example.com', 'compiler02.example.com'], 'hiera' => 'openvox_tune',
+        )
+        expect(result).to be_ok
+      end
     end
 
     it 'leaves the Hiera data out of the output by default' do
       expect_task('openvox_tune::host_resources')
         .with_targets('puppet.example.com')
         .always_return(host_resources(8, 16_000))
-      expect_out_message.with_params(hiera_header).not_be_called
+      expect_out_message.with_params(class_header).not_be_called
+      expect_out_message.with_params(foreman_header).not_be_called
 
       result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com')
       expect(result).to be_ok
-      expect(result.value.first['hiera']['puppet::server_max_active_instances']).to eq(7)
+      expect(result.value.first['hiera']['openvox_tune']['openvox_tune::max_active_instances']).to eq(7)
     end
   end
 

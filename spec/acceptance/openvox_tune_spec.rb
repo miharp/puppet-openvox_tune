@@ -67,30 +67,27 @@ describe 'openvox_tune' do
     wait_for_server
   end
 
-  context 'with defaults' do
+  context 'with values' do
     before(:all) do
       shell("#{STARTED} > #{STARTED_BEFORE}") if server_available?
     end
 
     it_behaves_like 'an idempotent resource' do
-      let(:manifest) { "class { 'openvox_tune': restart_delay => 5 }" }
+      let(:manifest) do
+        "class { 'openvox_tune': max_active_instances => 2, heap_mb => 1536, reserved_code_cache_mb => 512, restart_delay => 5 }"
+      end
     end
 
     describe 'afterwards' do
-      let(:instances) { file("#{CONFD}/openvox_tune.conf").content[%r{max-active-instances: (\d+)}, 1].to_i }
-      let(:heap) do
+      it 'writes the settings' do
         defaults = file('/etc/default/puppetserver').exists? ? '/etc/default/puppetserver' : '/etc/sysconfig/puppetserver'
-        file(defaults).content[%r{^JAVA_ARGS=.*-Xmx(\d+m)}, 1]
-      end
-
-      it 'writes the settings, sized for this host' do
-        expect(instances).to be_positive
-        expect(heap).to match(%r{\A\d+m\z})
+        expect(file("#{CONFD}/openvox_tune.conf").content).to match(%r{max-active-instances: 2$})
+        expect(file(defaults).content).to match(%r{^JAVA_ARGS="-Xms1536m -Xmx1536m .*-XX:ReservedCodeCacheSize=512m"$})
       end
 
       it 'restarts puppetserver shortly after the run, with them' do
         wait_for_server(restarted: true)
-        expect(running_server).to eq('jrubies' => instances, 'heap' => heap)
+        expect(running_server).to eq('jrubies' => 2, 'heap' => '1536m')
       end
     end
   end
@@ -105,7 +102,7 @@ describe 'openvox_tune' do
     end
 
     it 'fails rather than leave puppetserver unable to start' do
-      result = apply_manifest("class { 'openvox_tune': }", expect_failures: true)
+      result = apply_manifest("class { 'openvox_tune': max_active_instances => 2 }", expect_failures: true)
       expect(result.stderr).to match(%r{max-active-instances is already set in tuning.conf})
     end
   end

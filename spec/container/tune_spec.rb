@@ -33,6 +33,6 @@ describe 'openvox_tune::tune plan through Bolt' do
     expect(on_server).to include('role' => 'server-with-compilers', 'instance-limit' => server_limit, 'matches-current' => false)
     expect(on_server['current']).to include('environment-timeout' => 0, 'max-active-instances' => nil)
     expect(on_compiler).to include('role' => 'compiler', 'instance-limit' => cpu_limit)
-    expect(on_compiler['hiera']['puppet::server_jvm_extra_args']).to include(%r{\A-XX:ReservedCodeCacheSize=\d+m\z})
+    expect(on_compiler['hiera']['theforeman-puppet']['puppet::server_jvm_extra_args']).to include(%r{\A-XX:ReservedCodeCacheSize=\d+m\z})
   end
 end

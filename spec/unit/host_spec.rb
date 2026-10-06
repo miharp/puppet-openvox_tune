@@ -17,22 +17,6 @@ describe PuppetX::OpenvoxTune::Host do
     File.write(path, content)
   end
 
-  describe '.cpus' do
-    it 'counts the CPUs on a host without a CPU quota' do
-      expect(described_class.cpus(root: root, nprocessors: 8)).to eq(8)
-    end
-
-    it 'caps them by a container\'s CPU quota, rounding up' do
-      write('/sys/fs/cgroup/cpu.max', "150000 100000\n")
-      expect(described_class.cpus(root: root, nprocessors: 8)).to eq(2)
-    end
-
-    it 'ignores an unlimited quota' do
-      write('/sys/fs/cgroup/cpu.max', "max 100000\n")
-      expect(described_class.cpus(root: root, nprocessors: 8)).to eq(8)
-    end
-  end
-
   describe '.memory_mb' do
     before do
       write('/proc/meminfo', "MemTotal:       16000000 kB\nMemFree:         1000000 kB\n")
@@ -80,25 +64,6 @@ describe PuppetX::OpenvoxTune::Host do
 
     it 'is nil without a file' do
       expect(described_class.java_args(nil)).to be_nil
-    end
-  end
-
-  describe '.ca_enabled' do
-    let(:enabled) { 'puppetlabs.services.ca.certificate-authority-service/certificate-authority-service' }
-    let(:disabled) { 'puppetlabs.services.ca.certificate-authority-disabled-service/certificate-authority-disabled-service' }
-
-    it 'is true as packaged' do
-      write(described_class::CA_CFG, "#{enabled}\n##{disabled}\n")
-      expect(described_class.ca_enabled(root: root)).to be(true)
-    end
-
-    it 'is false on a compiler' do
-      write(described_class::CA_CFG, "##{enabled}\n#{disabled}\n")
-      expect(described_class.ca_enabled(root: root)).to be(false)
-    end
-
-    it 'is nil without ca.cfg' do
-      expect(described_class.ca_enabled(root: root)).to be_nil
     end
   end
 end

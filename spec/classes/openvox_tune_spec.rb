@@ -7,19 +7,18 @@ describe 'openvox_tune' do
     context "on #{os}" do
       define_method(:defaults_file) { (os_facts[:os]['family'] == 'Debian') ? '/etc/default/puppetserver' : '/etc/sysconfig/puppetserver' }
       define_method(:conf) { '/etc/puppetlabs/puppetserver/conf.d/openvox_tune.conf' }
-      # 8 CPUs and 16000 MB: 7 instances, 4096 MB of heap, 1024 MB of code cache.
+      define_method(:restart) { 'Exec[openvox_tune restart puppetserver]' }
       let(:server) do
         {
-          'cpus' => 8,
           'memory_mb' => 16_000,
           'defaults_file' => defaults_file,
           'java_args' => '-Xms2g -Xmx2g -Djruby.logger.class=com.puppetlabs.jruby_utils.jruby.Slf4jLogger',
-          'ca_enabled' => true,
           'jruby_puppet' => { 'max-requests-per-instance' => ['puppetserver.conf'] },
         }
       end
       let(:openvox_tune_fact) { server }
       let(:facts) { os_facts.merge(openvox_tune: openvox_tune_fact) }
+      let(:params) { { max_active_instances: 7, heap_mb: 4096, reserved_code_cache_mb: 1024 } }
 
       def java_args(args)
         "set JAVA_ARGS '\"#{args}\"'"
@@ -34,19 +33,20 @@ describe 'openvox_tune' do
           changes: java_args(
             '-Xms4096m -Xmx4096m -Djruby.logger.class=com.puppetlabs.jruby_utils.jruby.Slf4jLogger -XX:ReservedCodeCacheSize=1024m',
           ),
-        )
+        ).that_notifies(restart)
       end
 
       it 'sets max-active-instances in its own conf.d file' do
         expect(subject).to contain_file(conf).with(ensure: 'file', owner: 'root', group: 'root', mode: '0644')
                                              .with_content(%r{^jruby-puppet: \{\n    max-active-instances: 7\n\}$})
+                                             .that_notifies(restart)
       end
 
-      it 'restarts puppetserver after the run when either changes' do
+      it 'restarts puppetserver after the run when they change' do
         expect(subject).to contain_exec('openvox_tune restart puppetserver').with(
           command: 'systemd-run --on-active=30 --collect systemctl try-restart puppetserver.service',
           refreshonly: true,
-        ).that_subscribes_to(['Augeas[openvox_tune JAVA_ARGS]', "File[#{conf}]"])
+        )
       end
 
       context 'with a code cache already set and an option of the operator\'s' do
@@ -54,47 +54,60 @@ describe 'openvox_tune' do
           server.merge('java_args' => '-Xms1g -XX:ReservedCodeCacheSize=256m -XX:+UseG1GC -Xmx1g')
         end
 
-        it 'replaces the options it manages and keeps the rest' do
+        it 'replaces the options it sets and keeps the rest' do
           expect(subject).to contain_augeas('openvox_tune JAVA_ARGS')
             .with_changes(java_args('-Xms4096m -Xmx4096m -XX:+UseG1GC -XX:ReservedCodeCacheSize=1024m'))
         end
       end
 
-      context 'with values passed in' do
-        let(:params) { { max_active_instances: 3, heap_mb: 2048, reserved_code_cache_mb: 384, restart_delay: 5 } }
+      context 'with only the heap' do
+        let(:params) { { heap_mb: 4096 } }
+        let(:openvox_tune_fact) { server.merge('java_args' => '-Xms2g -XX:ReservedCodeCacheSize=256m -Xmx2g') }
 
-        it 'uses them instead of the recommendation' do
-          expect(subject).to contain_file(conf).with_content(%r{max-active-instances: 3$})
-          expect(subject).to contain_augeas('openvox_tune JAVA_ARGS').with_changes(%r{-Xms2048m -Xmx2048m .* -XX:ReservedCodeCacheSize=384m})
-          expect(subject).to contain_exec('openvox_tune restart puppetserver').with_command(%r{--on-active=5 })
+        it 'leaves the code cache as it is' do
+          expect(subject).to contain_augeas('openvox_tune JAVA_ARGS')
+            .with_changes(java_args('-Xms4096m -Xmx4096m -XX:ReservedCodeCacheSize=256m'))
         end
       end
 
-      context 'with reserved_memory_mb and memory_per_jruby_mb' do
-        let(:params) { { reserved_memory_mb: 12_000, memory_per_jruby_mb: 1024 } }
+      context 'with only the code cache' do
+        let(:params) { { reserved_code_cache_mb: 512 } }
 
-        it 'sizes with them' do
-          # 4000 MB left: 2 instances of 1024 MB, 2560 MB of heap and 512 MB of code cache.
-          expect(subject).to contain_file(conf).with_content(%r{max-active-instances: 2$})
-          expect(subject).to contain_augeas('openvox_tune JAVA_ARGS').with_changes(%r{-Xms2560m -Xmx2560m})
+        it 'leaves the heap as it is' do
+          expect(subject).to contain_augeas('openvox_tune JAVA_ARGS').with_changes(
+            java_args('-Xms2g -Xmx2g -Djruby.logger.class=com.puppetlabs.jruby_utils.jruby.Slf4jLogger -XX:ReservedCodeCacheSize=512m'),
+          )
         end
       end
 
-      context 'on a compiler' do
-        let(:openvox_tune_fact) { server.merge('ca_enabled' => false) }
+      context 'without max_active_instances' do
+        let(:params) { { heap_mb: 4096 } }
 
-        it 'sizes it like a server' do
-          expect(subject).to contain_file(conf).with_content(%r{max-active-instances: 7$})
+        it 'removes its conf.d file, so the server\'s default applies' do
+          expect(subject).to contain_file(conf).with_ensure('absent').that_notifies(restart)
+        end
+
+        context 'when another conf.d file sets max-active-instances' do
+          let(:openvox_tune_fact) { server.merge('jruby_puppet' => { 'max-active-instances' => ['puppetserver.conf'] }) }
+
+          it { is_expected.to compile.with_all_deps }
         end
       end
 
-      context 'with role server-with-compilers' do
-        let(:params) { { role: 'server-with-compilers' } }
+      context 'without values' do
+        let(:params) { {} }
 
-        it 'gives the server fewer instances' do
-          expect(subject).to contain_file(conf).with_content(%r{max-active-instances: 2$})
-          expect(subject).to contain_augeas('openvox_tune JAVA_ARGS').with_changes(%r{-Xms1536m -Xmx1536m})
+        it 'leaves JAVA_ARGS alone' do
+          expect(subject).to compile.with_all_deps
+          expect(subject).to have_augeas_resource_count(0)
+          expect(subject).to contain_file(conf).with_ensure('absent')
         end
+      end
+
+      context 'with restart_delay' do
+        let(:params) { super().merge(restart_delay: 5) }
+
+        it { is_expected.to contain_exec('openvox_tune restart puppetserver').with_command(%r{--on-active=5 }) }
       end
 
       context 'when this class already set max-active-instances' do
@@ -111,19 +124,24 @@ describe 'openvox_tune' do
         it { is_expected.to compile.and_raise_error(%r{max-active-instances is already set in puppetserver.conf}) }
       end
 
-      context 'without restart' do
-        let(:params) { { restart: false } }
+      context 'with more heap than the host can start with' do
+        # OpenVox Server needs 1.1 times the heap: 4096 MB of heap needs 4506 MB.
+        let(:openvox_tune_fact) { server.merge('memory_mb' => 4500) }
 
-        it { is_expected.not_to contain_exec('openvox_tune restart puppetserver') }
+        it { is_expected.to compile.and_raise_error(%r{refuses to start with 4096 MB of heap on this host's 4500 MB of memory}) }
       end
 
-      context 'on a host too small for one instance' do
-        let(:openvox_tune_fact) { server.merge('cpus' => 1, 'memory_mb' => 1900) }
+      context 'with the most heap the host can start with' do
+        let(:openvox_tune_fact) { server.merge('memory_mb' => 4506) }
 
-        it 'applies the smallest recommendation' do
-          expect(subject).to contain_augeas('openvox_tune JAVA_ARGS').with_changes(%r{-Xms1024m -Xmx1024m})
-          expect(subject).to contain_file(conf).with_content(%r{max-active-instances: 1$})
-        end
+        it { is_expected.to compile.with_all_deps }
+      end
+
+      context 'without restart' do
+        let(:params) { super().merge(restart: false) }
+
+        it { is_expected.not_to contain_exec('openvox_tune restart puppetserver') }
+        it { is_expected.to contain_file(conf).without_notify }
       end
 
       context 'where OpenVox Server is not installed' do

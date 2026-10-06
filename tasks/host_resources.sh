@@ -75,11 +75,12 @@ if [ -r "$defaults" ]; then
 
   # The rest needs the Ruby the agent ships: the jruby-puppet settings from
   # conf.d, which is HOCON, and environment_timeout from puppet.conf. Bolt
-  # puts files/server_settings.rb under $PT__installdir (see the metadata).
+  # puts lib/puppet_x/openvox_tune/server_settings.rb under $PT__installdir
+  # (see the metadata).
   unknown='"max_active_instances":null,"max_requests_per_instance":null,"max_queued_requests":null,"multithreaded":null,"environment_timeout":null'
   server_settings=$unknown
   ruby=/opt/puppetlabs/puppet/bin/ruby
-  settings_rb="${PT__installdir:-}/openvox_tune/files/server_settings.rb"
+  settings_rb="${PT__installdir:-}/openvox_tune/lib/puppet_x/openvox_tune/server_settings.rb"
   if [ -x "$ruby" ] && [ -r "$settings_rb" ]; then
     server_settings=$("$ruby" "$settings_rb" /etc/puppetlabs/puppetserver/conf.d 2>/dev/null) || server_settings=$unknown
     [ -n "$server_settings" ] || server_settings=$unknown

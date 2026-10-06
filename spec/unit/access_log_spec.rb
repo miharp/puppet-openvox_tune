@@ -3,9 +3,9 @@
 require 'fileutils'
 require 'tmpdir'
 require 'zlib'
-require_relative '../../files/access_log'
+require_relative '../../lib/puppet_x/openvox_tune/access_log'
 
-describe OpenvoxTune::AccessLog do
+describe PuppetX::OpenvoxTune::AccessLog do
   # Not on a slot boundary, so the slot holding now is still open.
   let(:now) { Time.utc(2026, 10, 6, 12, 2, 0) }
   let(:log_dir) { Dir.mktmpdir('openvox-tune-logs') }

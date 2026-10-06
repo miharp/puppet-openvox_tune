@@ -1,14 +1,7 @@
 # @summary Recommend OpenVox Server tuning for a host's CPUs and memory.
 #
-# Starts from the OpenVox Server tuning guide: `num-cpus - 1` JRuby
-# instances (at least 1), a heap of 512 MB plus 512 MB per instance (or
-# `memory_per_jruby_mb`), and a reserved code cache of 512 MB below 6
-# instances, 1 GB for 6 to 12, and 2 GB above 12. A server with compilers
-# gets fewer instances: 1 below 4 CPUs, 2 below 16 and 4 from 16, since its
-# compilers compile the catalogs. It then lowers the instance count until the
-# heap and the code cache fit in the memory left after the reserve for the
-# operating system and other services, and the host has at least 1.1 times
-# the heap: OpenVox Server refuses to start with less.
+# The OpenVox Server tuning guide's sizing, lowered to fit the host's memory;
+# see "What it recommends and why" in README.md.
 #
 # @param cpus
 #   The CPUs available to OpenVox Server.
@@ -27,17 +20,21 @@
 # @param role
 #   `server` for a server that compiles catalogs itself, `compiler` for a
 #   compiler (sized the same way), or `server-with-compilers` for the CA
-#   server of a deployment whose compilers compile the catalogs.
+#   server of a deployment whose compilers compile the catalogs, which gets
+#   1 instance below 4 CPUs, 2 below 16 and 4 from 16.
 #
 # @return [Hash]
-#   `max-active-instances`, `jvm-heap-mb` and `reserved-code-cache-mb`;
-#   `memory-per-jruby-mb`, the heap per instance they were sized with;
-#   `reserved-memory-mb` and `available-memory-mb`, the memory the
-#   recommendation was sized for; `instance-limit`, the instances the CPUs
-#   and role allow before memory is counted; `limited-by`, `cpu`, `role` or
-#   `memory`; and `fits`, false when even one instance needs more memory
-#   than is available, in which case the recommendation is for one instance
-#   anyway.
+#   `max-active-instances`: `num-cpus - 1` (at least 1), or the role's
+#   limit, lowered until the heap and code cache fit in the memory left
+#   after the reserve and the host has at least 1.1 times the heap, which
+#   OpenVox Server checks at startup. `jvm-heap-mb`: 512 MB plus
+#   `memory_per_jruby_mb` per instance. `reserved-code-cache-mb`: 512 MB
+#   below 6 instances, 1024 MB for 6 to 12, 2048 MB above.
+#   `memory-per-jruby-mb`, `reserved-memory-mb` and `available-memory-mb`:
+#   what it was sized with. `instance-limit`: the instances the CPUs and
+#   role allow before memory is counted. `limited-by`: `cpu`, `role` or
+#   `memory`. `fits`: false when even one instance needs more memory than is
+#   available, in which case the recommendation is for one instance anyway.
 #
 function openvox_tune::recommend(
   Integer[1]           $cpus,

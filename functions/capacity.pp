@@ -1,21 +1,14 @@
 # @summary Estimate OpenVox Server capacity from the JRuby load it served.
 #
-# Applies Little's law to what the access logs measured. Each agent run held
-# JRubies for `jruby-seconds-per-run` in total (catalog, file metadata,
-# report), and each node runs every `run-interval-seconds`, so N JRubies can
-# serve N * interval / per-run nodes when they are busy all the time, and
-# the nodes seen need at least nodes * per-run / interval JRubies.
-#
-# Nodes are merged across servers, since a load balancer sends one node's
-# runs to different compilers. The run interval is the median, over nodes
-# that ran at least twice, of the time between their catalog requests; when
-# no node ran twice in the window it falls back to `runinterval`.
+# Applies Little's law to the JRuby load the access logs measured; see
+# "Capacity" in README.md.
 #
 # @param loads
 #   One hash per server or compiler: `jrubies`, its JRuby instances, and
 #   from the `jruby_load` task `window_seconds`, `jruby_seconds`,
 #   `catalog_requests`, `status_503`, `bucket_seconds`, `buckets`, `nodes`
-#   and `runinterval`.
+#   and `runinterval`. Nodes are merged across them, since a load balancer
+#   sends one node's runs to different compilers.
 #
 # @return [Hash]
 #   `jrubies`; `window-seconds`, the longest window the logs cover;
@@ -23,11 +16,14 @@
 #   `utilization`, that over `jrubies`; `peak-busy-jrubies`,
 #   `peak-utilization` and `peak-from` (seconds since the epoch) for the
 #   busiest whole time slot of `bucket-seconds` (the average, and undef
-#   `peak-from`, when the window holds no whole slot); `nodes` and `catalog-requests`;
-#   `run-interval-seconds` and `run-interval-source` (`measured` or
-#   `runinterval`); `jruby-seconds-per-run`; `node-capacity` and
-#   `minimum-jrubies`, undef without agent runs in the window; and
-#   `status-503`.
+#   `peak-from`, when the window holds no whole slot); `nodes` and
+#   `catalog-requests`; `run-interval-seconds`, the median over nodes that
+#   ran at least twice of the time between their catalog requests, and
+#   `run-interval-source`, `measured` or `runinterval` when no node ran
+#   twice; `jruby-seconds-per-run`, all JRuby time over catalog requests;
+#   `node-capacity`, JRubies * interval / per-run, and `minimum-jrubies`,
+#   nodes * per-run / interval, both undef without agent runs in the window;
+#   and `status-503`.
 #
 function openvox_tune::capacity(
   Array[Hash, 1] $loads,

@@ -1,0 +1,22 @@
+{
+  "description": "Measure how much JRuby time OpenVox Server used over a window, from the jruby.borrow-time its access log records for every request: JRuby-seconds in total and per time slot, catalog requests per node, and 503 responses. Needs read access to the access logs. Used internally by openvox_tune::capacity.",
+  "input_method": "stdin",
+  "parameters": {
+    "window_hours": {
+      "description": "How many hours back from now to read; defaults to 24",
+      "type": "Optional[Integer[1]]"
+    },
+    "bucket_minutes": {
+      "description": "Length of the time slots for finding the busiest period, in minutes; defaults to 5",
+      "type": "Optional[Integer[1, 60]]"
+    },
+    "log_dir": {
+      "description": "Directory holding puppetserver-access.log and its rotated files; defaults to /var/log/puppetlabs/puppetserver",
+      "type": "Optional[String[1]]"
+    }
+  },
+  "supports_noop": false,
+  "files": [
+    "openvox_tune/files/access_log.rb"
+  ]
+}

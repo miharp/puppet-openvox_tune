@@ -113,30 +113,7 @@ plan openvox_tune::tune(
       'server'
     }
 
-    if $server =~ Undef {
-      $current = undef
-    } else {
-      # OpenVox Server's own default when max-active-instances is unset.
-      $instances = $server['max_active_instances'] ? {
-        undef   => min(max($host['cpus'] - 1, 1), 4),
-        default => $server['max_active_instances'],
-      }
-      $current = {
-        'max-active-instances'           => $server['max_active_instances'],
-        'effective-max-active-instances' => $instances,
-        'jvm-min-heap-mb'                => $server['xms_mb'],
-        'jvm-heap-mb'                    => $server['xmx_mb'],
-        'reserved-code-cache-mb'         => $server['code_cache_mb'],
-        'memory-per-jruby-mb'            => $server['xmx_mb'] ? {
-          undef   => undef,
-          default => ($server['xmx_mb'] - 512) / $instances,
-        },
-        'environment-timeout'            => $server['environment_timeout'],
-        'max-requests-per-instance'      => $server['max_requests_per_instance'],
-        'max-queued-requests'            => $server['max_queued_requests'],
-        'multithreaded'                  => $server['multithreaded'],
-      }
-    }
+    $current = openvox_tune::current($host)
 
     $memory_per_jruby = if $memory_per_jruby_mb =~ Integer {
       $memory_per_jruby_mb

@@ -141,6 +141,43 @@ See [REFERENCE.md](https://github.com/miharp/puppet-openvox_tune/blob/main/REFER
 for the plan's parameters and return value, and for the
 `openvox_tune::recommend` function that does the sizing.
 
+## Capacity
+
+`openvox_tune::capacity` estimates how many nodes the servers can serve,
+from the load they actually served. Run it against the server and all its
+compilers together:
+
+```shell
+bolt plan run openvox_tune::capacity --targets puppet.example.com,compiler01.example.com
+```
+
+```text
+# puppet.example.com: 4 JRubies, 50000 requests (48000 held a JRuby); busy 10% on average, 24% at the busiest.
+
+# Capacity over the last 24 h, from the access logs of 1 server:
+# 300 nodes requested catalogs, every 30 min (median); each run held JRubies for 2.40 s in total.
+# JRubies busy 10% on average, 24% in the busiest 5 minutes (from 2026-10-05 14:30 UTC).
+# At this rate the 4 JRubies can serve about 3000 nodes; the nodes seen need at least 1 JRuby.
+```
+
+OpenVox Server's access log records how long every request held a JRuby
+(`jruby.borrow-time` in `request-logging.xml`). The plan adds that up over
+`window_hours` (24 by default; the logs are kept for up to 90 days), finds
+the busiest `bucket_minutes` slot, and counts the nodes that requested
+catalogs and how often they did. Little's law then gives the estimate: each
+run holds JRubies for the time shown, catalog, file metadata and report
+together, so the JRubies can serve their count times the run interval over
+that time. Nodes are counted across all the targets, since a load balancer
+sends one node's runs to different compilers.
+
+The estimate counts only load that was served. Requests turned away with
+503 because `max-queued-requests` was reached are counted and pointed out,
+and a run interval longer than the window cannot be measured, so the plan
+then uses `runinterval` instead. A window that spans a change of settings
+or code blends the two; narrow it with `window_hours`. Reading the logs
+needs root or the puppet user, and the plan only understands the access log
+pattern OpenVox Server ships.
+
 ## What it recommends and why
 
 Formulas come directly from the [OpenVox Server Tuning

@@ -30,6 +30,13 @@ Notable changes to openvox_tune are recorded here. The format follows
   when a host is too small for one instance, and notes OpenVoxDB or
   PostgreSQL running on the same host. Advisory only; it changes nothing on
   the targets.
+- The `openvox_tune::capacity` plan: adds up how long requests held a JRuby,
+  from OpenVox Server's access logs over a window, and estimates from it how
+  many nodes the servers can serve and how many JRubies the nodes need,
+  with how busy the JRubies were on average and in the busiest time slot.
+  Counts nodes across the server and its compilers. The
+  `openvox_tune::jruby_load` task reads the logs, and the
+  `openvox_tune::capacity` function does the arithmetic.
 - The `openvox_tune::recommend` function, which does the sizing for given
   CPUs, memory, reserve, heap per JRuby instance and role.
 - The `openvox_tune::host_resources` task, which the plan uses to read the

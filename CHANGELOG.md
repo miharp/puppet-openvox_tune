@@ -6,6 +6,8 @@ Notable changes to openvox_tune are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-06
+
 ### Added
 
 - The `openvox_tune` class: applies the settings it is given, usually Hiera
@@ -62,5 +64,8 @@ Notable changes to openvox_tune are recorded here. The format follows
   Server's current heap, code cache, JRuby pool settings and
   `environment_timeout` (resolved as the server resolves it) and whether its
   CA service is enabled.
+- OpenVox 8 and 9 on Debian 12 and 13, Ubuntu 22.04 and 24.04, and EL 8, 9
+  and 10. The plans run with OpenBolt 5.
 
-[Unreleased]: https://github.com/miharp/puppet-openvox_tune/commits/main
+[Unreleased]: https://github.com/miharp/puppet-openvox_tune/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/miharp/puppet-openvox_tune/releases/tag/v0.1.0

@@ -2,7 +2,7 @@
   "name": "miharp-openvox_tune",
   "version": "0.1.0",
   "author": "Mike Harp",
-  "summary": "Recommends OpenVox Server tuning settings (JRuby pool size, JVM heap, reserved code cache) from the OpenVox Server tuning guide",
+  "summary": "Sizes OpenVox Server's JRuby pool, JVM heap and code cache: plans recommend settings and estimate capacity, a class applies them",
   "license": "Apache-2.0",
   "source": "https://github.com/miharp/puppet-openvox_tune",
   "project_page": "https://github.com/miharp/puppet-openvox_tune",

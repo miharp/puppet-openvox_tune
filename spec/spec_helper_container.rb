@@ -29,16 +29,42 @@ module ContainerHelpers
     ENV.fetch('BASE_IMAGE')
   end
 
+  # The checkout, mounted where Bolt would put the module for a task that
+  # ships files: $_installdir/openvox_tune.
+  MODULE_MOUNT = ['-v', "#{REPO}:/installdir/openvox_tune:ro"].freeze
+
   # Runs setup, then the task, in a fresh container, and returns the task's
   # output.
   def host_resources(setup = 'true', docker_args: [], from: image)
-    script = "#{PATH_LINE}\n#{setup}\nbash /t/host_resources.sh"
+    script = "#{PATH_LINE}\n#{setup}\nbash /installdir/openvox_tune/tasks/host_resources.sh"
     out, err, status = Open3.capture3(
-      'docker', 'run', '--rm', *docker_args, '-v', "#{REPO}/tasks:/t:ro", from, 'bash', '-c', script
+      'docker', 'run', '--rm', *docker_args, *MODULE_MOUNT, '-e', 'PT__installdir=/installdir', from, 'bash', '-c', script
     )
     raise "host_resources failed (exit #{status.exitstatus}): #{err}" unless status.success?
 
     JSON.parse(out.lines.last)
+  end
+
+  # Runs the jruby_load task in a fresh container, reading the access logs
+  # in log_dir on this machine, and returns the task's output.
+  def jruby_load(log_dir, **params)
+    input = JSON.generate({ '_installdir' => '/installdir', 'log_dir' => '/logs' }.merge(params.transform_keys(&:to_s)))
+    out, err, status = Open3.capture3(
+      'docker', 'run', '--rm', '-i', *MODULE_MOUNT, '-v', "#{log_dir}:/logs:ro", image,
+      '/opt/puppetlabs/puppet/bin/ruby', '/installdir/openvox_tune/tasks/jruby_load.rb',
+      stdin_data: input
+    )
+    raise "jruby_load failed (exit #{status.exitstatus}): #{err}#{out}" unless status.success?
+
+    JSON.parse(out.lines.last)
+  end
+
+  # An access log line in the format OpenVox Server's request-logging.xml
+  # ships, as one taken from a real server.
+  def access_line(time, path, borrow_ms:, method: 'POST', status: 200)
+    stamp = time.utc.strftime('%d/%b/%Y:%H:%M:%S +0000')
+    %(10.0.0.5 - - [#{stamp}] "#{method} #{path} HTTP/1.1" #{status} 318 "-" ) +
+      %("Puppet/8.29.0 Ruby/3.2.11-p268 (x86_64-linux)" #{borrow_ms.to_i + 8} 16557 #{borrow_ms || '-'}\n)
   end
 
   def java_args_setup(java_args)

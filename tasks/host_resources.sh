@@ -74,60 +74,14 @@ if [ -r "$defaults" ]; then
   done
 
   # The rest needs the Ruby the agent ships: the jruby-puppet settings from
-  # conf.d, which is HOCON, and environment_timeout from puppet.conf.
+  # conf.d, which is HOCON, and environment_timeout from puppet.conf. Bolt
+  # puts files/server_settings.rb under $PT__installdir (see the metadata).
   unknown='"max_active_instances":null,"max_requests_per_instance":null,"max_queued_requests":null,"multithreaded":null,"environment_timeout":null'
   server_settings=$unknown
   ruby=/opt/puppetlabs/puppet/bin/ruby
-  if [ -x "$ruby" ]; then
-    server_settings=$("$ruby" - /etc/puppetlabs/puppetserver/conf.d 2>/dev/null <<'RUBY'
-require 'json'
-
-settings = {
-  'max_active_instances' => nil, 'max_requests_per_instance' => nil,
-  'max_queued_requests' => nil, 'multithreaded' => nil, 'environment_timeout' => nil
-}
-
-# A later conf.d file wins, and one that does not parse is skipped.
-begin
-  require 'hocon'
-  keys = {
-    'max_active_instances' => 'max-active-instances',
-    'max_requests_per_instance' => 'max-requests-per-instance',
-    'max_queued_requests' => 'max-queued-requests',
-    'multithreaded' => 'multithreaded'
-  }
-  Dir.glob(File.join(ARGV[0], '*.conf')).sort.each do |file|
-    jruby = (Hocon.load(file)['jruby-puppet'] rescue nil)
-    next unless jruby.is_a?(Hash)
-    keys.each { |name, key| settings[name] = jruby[key] if jruby.key?(key) }
-  end
-  %w[max_active_instances max_requests_per_instance max_queued_requests].each do |name|
-    settings[name] = (Integer(settings[name]) rescue nil) unless settings[name].nil?
-  end
-  settings['multithreaded'] = [true, 'true'].include?(settings['multithreaded']) unless settings['multithreaded'].nil?
-rescue LoadError
-  nil
-end
-
-# environment_timeout as OpenVox Server resolves it, in the server run mode
-# (puppet/server/puppet_config.rb), so a [server] value in puppet.conf
-# counts. `puppet config print --section server` misses it for this setting.
-begin
-  require 'puppet'
-  Puppet.settings.preferred_run_mode = :server
-  Puppet.initialize_settings([])
-  Puppet.settings.initialize_app_defaults(
-    Puppet::Settings.app_defaults_for_run_mode(Puppet::Util::RunMode[:server]).merge(name: 'server'),
-  )
-  timeout = Puppet[:environment_timeout]
-  settings['environment_timeout'] = timeout.to_f.infinite? ? 'unlimited' : Integer(timeout)
-rescue StandardError, LoadError
-  nil
-end
-
-print JSON.generate(settings)[1..-2]
-RUBY
-    ) || server_settings=$unknown
+  settings_rb="${PT__installdir:-}/openvox_tune/files/server_settings.rb"
+  if [ -x "$ruby" ] && [ -r "$settings_rb" ]; then
+    server_settings=$("$ruby" "$settings_rb" /etc/puppetlabs/puppetserver/conf.d 2>/dev/null) || server_settings=$unknown
     [ -n "$server_settings" ] || server_settings=$unknown
   fi
 

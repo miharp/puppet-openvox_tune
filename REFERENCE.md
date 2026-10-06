@@ -8,22 +8,75 @@
 
 #### Public Functions
 
+* [`openvox_tune::capacity`](#openvox_tune--capacity): Estimate OpenVox Server capacity from the JRuby load it served.
 * [`openvox_tune::recommend`](#openvox_tune--recommend): Recommend OpenVox Server tuning for a host's CPUs and memory.
 
 #### Private Functions
 
+* `openvox_tune::current`: OpenVox Server's current settings, from the host_resources task.
 * `openvox_tune::describe_current`: Describe OpenVox Server's current tuning settings in one line.
 * `openvox_tune::describe_options`: Describe OpenVox Server's other current settings in one line.
+* `openvox_tune::percent`: Format a fraction as a percentage, with a decimal below 10%.
 
 ### Tasks
 
 * [`host_resources`](#host_resources): Return the CPUs and memory available on the target, capped by a container's CPU quota and memory limit, any OpenVoxDB or PostgreSQL services 
+* [`jruby_load`](#jruby_load): Measure how much JRuby time OpenVox Server used over a window, from the jruby.borrow-time its access log records for every request: JRuby-sec
 
 ### Plans
 
+* [`openvox_tune::capacity`](#openvox_tune--capacity): Estimate how many nodes OpenVox Server can serve, from the load it served.
 * [`openvox_tune::tune`](#openvox_tune--tune): Recommend OpenVox Server tuning settings based on the official tuning guide.
 
 ## Functions
+
+### <a name="openvox_tune--capacity"></a>`openvox_tune::capacity`
+
+Type: Puppet Language
+
+Applies Little's law to what the access logs measured. Each agent run held
+JRubies for `jruby-seconds-per-run` in total (catalog, file metadata,
+report), and each node runs every `run-interval-seconds`, so N JRubies can
+serve N * interval / per-run nodes when they are busy all the time, and
+the nodes seen need at least nodes * per-run / interval JRubies.
+
+Nodes are merged across servers, since a load balancer sends one node's
+runs to different compilers. The run interval is the median, over nodes
+that ran at least twice, of the time between their catalog requests; when
+no node ran twice in the window it falls back to `runinterval`.
+
+#### `openvox_tune::capacity(Array[Hash, 1] $loads)`
+
+Applies Little's law to what the access logs measured. Each agent run held
+JRubies for `jruby-seconds-per-run` in total (catalog, file metadata,
+report), and each node runs every `run-interval-seconds`, so N JRubies can
+serve N * interval / per-run nodes when they are busy all the time, and
+the nodes seen need at least nodes * per-run / interval JRubies.
+
+Nodes are merged across servers, since a load balancer sends one node's
+runs to different compilers. The run interval is the median, over nodes
+that ran at least twice, of the time between their catalog requests; when
+no node ran twice in the window it falls back to `runinterval`.
+
+Returns: `Hash` `jrubies`; `window-seconds`, the longest window the logs cover;
+`jruby-seconds`; `busy-jrubies`, the JRubies in use on average, and
+`utilization`, that over `jrubies`; `peak-busy-jrubies`,
+`peak-utilization` and `peak-from` (seconds since the epoch) for the
+busiest whole time slot of `bucket-seconds` (the average, and undef
+`peak-from`, when the window holds no whole slot); `nodes` and `catalog-requests`;
+`run-interval-seconds` and `run-interval-source` (`measured` or
+`runinterval`); `jruby-seconds-per-run`; `node-capacity` and
+`minimum-jrubies`, undef without agent runs in the window; and
+`status-503`.
+
+##### `loads`
+
+Data type: `Array[Hash, 1]`
+
+One hash per server or compiler: `jrubies`, its JRuby instances, and
+from the `jruby_load` task `window_seconds`, `jruby_seconds`,
+`catalog_requests`, `status_503`, `bucket_seconds`, `buckets`, `nodes`
+and `runinterval`.
 
 ### <a name="openvox_tune--recommend"></a>`openvox_tune::recommend`
 
@@ -102,7 +155,104 @@ Return the CPUs and memory available on the target, capped by a container's CPU 
 
 **Supports noop?** false
 
+### <a name="jruby_load"></a>`jruby_load`
+
+Measure how much JRuby time OpenVox Server used over a window, from the jruby.borrow-time its access log records for every request: JRuby-seconds in total and per time slot, catalog requests per node, and 503 responses. Needs read access to the access logs. Used internally by openvox_tune::capacity.
+
+**Supports noop?** false
+
+#### Parameters
+
+##### `window_hours`
+
+Data type: `Optional[Integer[1]]`
+
+How many hours back from now to read; defaults to 24
+
+##### `bucket_minutes`
+
+Data type: `Optional[Integer[1, 60]]`
+
+Length of the time slots for finding the busiest period, in minutes; defaults to 5
+
+##### `log_dir`
+
+Data type: `Optional[String[1]]`
+
+Directory holding puppetserver-access.log and its rotated files; defaults to /var/log/puppetlabs/puppetserver
+
 ## Plans
+
+### <a name="openvox_tune--capacity"></a>`openvox_tune::capacity`
+
+OpenVox Server's access log records how long each request held a JRuby
+(`jruby.borrow-time`). This plan adds that up over a window on each
+target, with the `jruby_load` task, and shows how busy the JRubies were on
+average and in the busiest time slot. With the nodes that requested
+catalogs and how often they did, it estimates how many nodes the JRubies
+can serve at this rate and how many JRubies the nodes need. See
+`openvox_tune::capacity`. Advisory only: it changes nothing on the targets.
+
+Run it against the server and all its compilers together, so that load
+and nodes add up across the deployment. When the run includes compilers
+(hosts whose CA service is disabled), the estimate covers the compilers:
+the server is shown but left out, since the compilers serve the agents.
+Targets without OpenVox Server or without a readable access log, and
+targets where a task fails, are left out with the reason; reading the logs
+needs root or the puppet user. JRuby counts are the current settings.
+
+The plan returns `targets`, one hash per target with `target`, `role`
+(`server`, `compiler` or `server-with-compilers`), `jrubies`,
+`access-log` (`found`, `missing`, `unreadable`, `unrecognized`, or `failed`
+when a task failed there),
+`requests`, `jruby-requests`, `jruby-seconds`, `window-seconds`,
+`utilization` and `peak-utilization`, and `estimate`, the hash
+`openvox_tune::capacity` returns for the targets whose logs were read.
+
+#### Examples
+
+##### Estimate capacity from the last day
+
+```puppet
+bolt plan run openvox_tune::capacity --targets puppet.example.com,compiler01.example.com
+```
+
+##### Use a week of logs, in 15-minute slots
+
+```puppet
+bolt plan run openvox_tune::capacity --targets servers window_hours=168 bucket_minutes=15
+```
+
+#### Parameters
+
+The following parameters are available in the `openvox_tune::capacity` plan:
+
+* [`targets`](#-openvox_tune--capacity--targets)
+* [`window_hours`](#-openvox_tune--capacity--window_hours)
+* [`bucket_minutes`](#-openvox_tune--capacity--bucket_minutes)
+
+##### <a name="-openvox_tune--capacity--targets"></a>`targets`
+
+Data type: `TargetSpec`
+
+The OpenVox Server node(s) and compilers to read.
+
+##### <a name="-openvox_tune--capacity--window_hours"></a>`window_hours`
+
+Data type: `Integer[1]`
+
+How many hours of access logs to read, back from now. The logs are
+rotated daily and kept for up to 90 days.
+
+Default value: `24`
+
+##### <a name="-openvox_tune--capacity--bucket_minutes"></a>`bucket_minutes`
+
+Data type: `Integer[1, 60]`
+
+Length of the time slots for finding the busiest period, in minutes.
+
+Default value: `5`
 
 ### <a name="openvox_tune--tune"></a>`openvox_tune::tune`
 

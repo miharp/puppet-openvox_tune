@@ -6,6 +6,8 @@ Notable changes to openvox_tune are recorded here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-17
+
 ### Added
 
 - `openvox_tune::tune` takes `hiera=openvox_server` and prints the settings
@@ -76,5 +78,6 @@ Notable changes to openvox_tune are recorded here. The format follows
 - OpenVox 8 and 9 on Debian 12 and 13, Ubuntu 22.04 and 24.04, and EL 8, 9
   and 10. The plans run with OpenBolt 5.
 
-[Unreleased]: https://github.com/miharp/puppet-openvox_tune/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/miharp/puppet-openvox_tune/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/miharp/puppet-openvox_tune/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/miharp/puppet-openvox_tune/releases/tag/v0.1.0

@@ -116,7 +116,28 @@ PostgreSQL. Certificate requests do not use JRuby instances, so the server's
 instances only compile catalogs for agents that still point at it, such as
 its own and the compilers'. This assumes the other agents get their
 catalogs from the compilers, through a load balancer as in ovadm's Large
-topology. Run against the server alone, it is sized as a standalone server.
+topology. The plan only knows about the compilers it is given as targets:
+run against the server alone, it is sized as a standalone server and gets
+more instances than it needs, and the plan prints a note saying so.
+
+### Servers managed by the openvox_server class
+
+If the [openvox_server](https://forge.puppet.com/modules/miharp/openvox_server)
+class manages the server, it passes the three settings on to this module's
+class, so they go in its parameters. Pass `hiera=openvox_server` to get them
+as Hiera data for that class:
+
+```shell
+bolt plan run openvox_tune::tune --targets puppet.example.com hiera=openvox_server
+```
+
+```yaml
+# Hiera for the openvox_server class.
+# For puppet.example.com:
+openvox_server::max_active_instances: 7
+openvox_server::heap_mb: 4096
+openvox_server::reserved_code_cache_mb: 1024
+```
 
 ### Servers managed by theforeman-puppet
 

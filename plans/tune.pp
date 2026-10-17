@@ -30,7 +30,9 @@
 # in services.d/ca.cfg is a compiler and is sized like any server. When the
 # run includes a compiler, the hosts whose CA is enabled are servers with
 # compilers: their compilers compile the catalogs, so they get only 1 to 4
-# instances. See `openvox_tune::recommend`.
+# instances. See `openvox_tune::recommend`. The plan only knows about the
+# compilers it is given as targets, so a server run on its own is sized as
+# a standalone server, with a note saying so.
 #
 # The plan returns one hash per target with `target`, `role` (`server`,
 # `compiler` or `server-with-compilers`), `cpus`, `memory-mb`,
@@ -42,8 +44,9 @@
 # heap per instance by the tuning guide's formula, `environment-timeout`, in
 # seconds or `unlimited`, `max-requests-per-instance`, `max-queued-requests`
 # and `multithreaded`, each undef when not known or not set), `matches-current`, and
-# `hiera`, the same settings as Hiera data for the `openvox_tune` class and
-# for theforeman-puppet, under `openvox_tune` and `theforeman-puppet`.
+# `hiera`, the same settings as Hiera data for the `openvox_tune` class, the
+# `openvox_server` class and theforeman-puppet, under `openvox_tune`,
+# `openvox_server` and `theforeman-puppet`.
 #
 # @param targets
 #   The OpenVox Server node(s) to inspect.
@@ -66,8 +69,9 @@
 #
 # @param hiera
 #   Also print the settings as Hiera data: `openvox_tune` for the
-#   `openvox_tune` class, `theforeman-puppet` for theforeman-puppet's `puppet`
-#   class. Targets given the same values share one block, which lists them,
+#   `openvox_tune` class, `openvox_server` for the `openvox_server` class,
+#   `theforeman-puppet` for theforeman-puppet's `puppet` class. Targets given
+#   the same values share one block, which lists them,
 #   so that a fleet of compilers built alike can take its values from one
 #   level of the hierarchy, such as their role; the plan notes when the
 #   compilers in the run get different values.
@@ -84,6 +88,9 @@
 # @example Print Hiera data for the openvox_tune class
 #   bolt plan run openvox_tune::tune --targets puppet.example.com hiera=openvox_tune
 #
+# @example Print Hiera data for servers managed by the openvox_server class
+#   bolt plan run openvox_tune::tune --targets puppet.example.com hiera=openvox_server
+#
 # @example Print Hiera data for servers managed by theforeman-puppet
 #   bolt plan run openvox_tune::tune --targets puppet.example.com hiera=theforeman-puppet
 plan openvox_tune::tune(
@@ -91,7 +98,7 @@ plan openvox_tune::tune(
   Optional[Integer[0]]   $reserved_memory_mb           = undef,
   Optional[Integer[256]] $memory_per_jruby_mb          = undef,
   Boolean                $use_current_memory_per_jruby = false,
-  Optional[Enum['openvox_tune', 'theforeman-puppet']] $hiera = undef,
+  Optional[Enum['openvox_tune', 'openvox_server', 'theforeman-puppet']] $hiera = undef,
 ) {
   # theforeman-puppet passes -Djruby.logger.class itself only while
   # server_jvm_extra_args is unset, so the Hiera data has to repeat it.
@@ -158,6 +165,11 @@ plan openvox_tune::tune(
           'openvox_tune::heap_mb'                => $settings['jvm-heap-mb'],
           'openvox_tune::reserved_code_cache_mb' => $settings['reserved-code-cache-mb'],
         },
+        'openvox_server'    => {
+          'openvox_server::max_active_instances'   => $settings['max-active-instances'],
+          'openvox_server::heap_mb'                => $settings['jvm-heap-mb'],
+          'openvox_server::reserved_code_cache_mb' => $settings['reserved-code-cache-mb'],
+        },
         'theforeman-puppet' => {
           'puppet::server_max_active_instances' => $settings['max-active-instances'],
           'puppet::server_jvm_min_heap_size'    => "${settings['jvm-heap-mb']}m",
@@ -209,6 +221,11 @@ plan openvox_tune::tune(
         # Server with compilers: the compilers compile the catalogs, so this server \
         keeps 1 instance below 4 CPUs, 2 below 16 and 4 from 16.
         |- MSG
+    } elsif $r['current'] =~ Hash {
+      out::message(@("MSG"/L))
+        # Standalone server: no compiler is in this run. If this server has compilers, \
+        run the plan against them too; a server with compilers gets fewer instances.
+        |- MSG
     }
     if $r['memory-per-jruby-mb'] != 512 {
       out::message("# Sized for ${r['memory-per-jruby-mb']} MB of heap per JRuby instance.")
@@ -245,6 +262,8 @@ plan openvox_tune::tune(
 
     if $hiera == 'openvox_tune' {
       out::message('# Hiera for the openvox_tune class.')
+    } elsif $hiera == 'openvox_server' {
+      out::message('# Hiera for the openvox_server class.')
     } else {
       out::message("# Hiera for theforeman-puppet. Setting server_jvm_extra_args replaces the module's own")
       out::message("# ${jruby_logger_arg}, so it is repeated here; add any other arguments you pass.")
@@ -266,7 +285,7 @@ plan openvox_tune::tune(
         out::message("# For ${names.join(', ')} (${names.length} targets):")
       }
 
-      if $hiera == 'openvox_tune' {
+      if $hiera != 'theforeman-puppet' {
         $data.each |$key, $value| {
           out::message("${key}: ${value}")
         }

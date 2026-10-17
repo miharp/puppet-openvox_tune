@@ -30,6 +30,11 @@ describe 'openvox_tune::tune', :plan do
       'the operating system only; set reserved_memory_mb to include other services.'
   end
 
+  def standalone
+    '# Standalone server: no compiler is in this run. If this server has compilers, ' \
+      'run the plan against them too; a server with compilers gets fewer instances.'
+  end
+
   before do
     allow_out_message
   end
@@ -42,6 +47,7 @@ describe 'openvox_tune::tune', :plan do
     expect_out_message.with_params('# Current: OpenVox Server is not installed.')
     expect_out_message.with_params('jruby-puppet.max-active-instances: 7')
     expect_out_message.with_params('JAVA_ARGS: -Xms4096m -Xmx4096m -XX:ReservedCodeCacheSize=1024m')
+    expect_out_message.with_params(standalone).not_be_called
 
     result = run_plan('openvox_tune::tune', 'targets' => 'medium.example.com')
     expect(result).to be_ok
@@ -69,6 +75,11 @@ describe 'openvox_tune::tune', :plan do
               'openvox_tune::max_active_instances' => 7,
               'openvox_tune::heap_mb' => 4096,
               'openvox_tune::reserved_code_cache_mb' => 1024,
+            },
+            'openvox_server' => {
+              'openvox_server::max_active_instances' => 7,
+              'openvox_server::heap_mb' => 4096,
+              'openvox_server::reserved_code_cache_mb' => 1024,
             },
             'theforeman-puppet' => {
               'puppet::server_max_active_instances' => 7,
@@ -98,6 +109,7 @@ describe 'openvox_tune::tune', :plan do
       )
       expect_out_message.with_params(server_with_compilers)
       expect_out_message.with_params('# Compiler: its CA service is disabled.')
+      expect_out_message.with_params(standalone).not_be_called
 
       result = run_plan('openvox_tune::tune', 'targets' => ['puppet.example.com', 'compiler01.example.com'])
       expect(result).to be_ok
@@ -110,11 +122,12 @@ describe 'openvox_tune::tune', :plan do
       )
     end
 
-    it 'sizes a server as a server when no compiler is in the run' do
+    it 'sizes a server as a standalone server, and says so, when no compiler is in the run' do
       expect_task('openvox_tune::host_resources')
         .with_targets('puppet.example.com')
         .always_return(host_resources(8, 16_000, puppetserver: puppetserver))
       expect_out_message.with_params(server_with_compilers).not_be_called
+      expect_out_message.with_params(standalone)
 
       result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com')
       expect(result).to be_ok
@@ -140,6 +153,7 @@ describe 'openvox_tune::tune', :plan do
 
   context 'with hiera' do
     let(:class_header) { '# Hiera for the openvox_tune class.' }
+    let(:server_header) { '# Hiera for the openvox_server class.' }
     let(:foreman_header) { '# Hiera for theforeman-puppet. Setting server_jvm_extra_args replaces the module\'s own' }
 
     it 'prints the settings as Hiera data for the openvox_tune class' do
@@ -153,10 +167,34 @@ describe 'openvox_tune::tune', :plan do
         'openvox_tune::heap_mb: 4096',
         'openvox_tune::reserved_code_cache_mb: 1024',
       ].each { |line| expect_out_message.with_params(line) }
+      expect_out_message.with_params(server_header).not_be_called
       expect_out_message.with_params(foreman_header).not_be_called
 
       result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com', 'hiera' => 'openvox_tune')
       expect(result).to be_ok
+    end
+
+    it 'prints the settings as Hiera data for the openvox_server class' do
+      expect_task('openvox_tune::host_resources')
+        .with_targets('puppet.example.com')
+        .always_return(host_resources(8, 16_000))
+      [
+        server_header,
+        '# For puppet.example.com:',
+        'openvox_server::max_active_instances: 7',
+        'openvox_server::heap_mb: 4096',
+        'openvox_server::reserved_code_cache_mb: 1024',
+      ].each { |line| expect_out_message.with_params(line) }
+      expect_out_message.with_params(class_header).not_be_called
+      expect_out_message.with_params(foreman_header).not_be_called
+
+      result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com', 'hiera' => 'openvox_server')
+      expect(result).to be_ok
+      expect(result.value.first['hiera']['openvox_server']).to eq(
+        'openvox_server::max_active_instances' => 7,
+        'openvox_server::heap_mb' => 4096,
+        'openvox_server::reserved_code_cache_mb' => 1024,
+      )
     end
 
     it 'prints the settings as Hiera data for theforeman-puppet' do
@@ -177,6 +215,7 @@ describe 'openvox_tune::tune', :plan do
       ].each { |line| expect_out_message.with_params(line) }
 
       expect_out_message.with_params(class_header).not_be_called
+      expect_out_message.with_params(server_header).not_be_called
 
       result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com', 'hiera' => 'theforeman-puppet')
       expect(result).to be_ok
@@ -239,6 +278,7 @@ describe 'openvox_tune::tune', :plan do
         .with_targets('puppet.example.com')
         .always_return(host_resources(8, 16_000))
       expect_out_message.with_params(class_header).not_be_called
+      expect_out_message.with_params(server_header).not_be_called
       expect_out_message.with_params(foreman_header).not_be_called
 
       result = run_plan('openvox_tune::tune', 'targets' => 'puppet.example.com')

@@ -6,6 +6,15 @@ Notable changes to openvox_tune are recorded here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- `openvox_tune::tune` takes `hiera=openvox_server` and prints the settings
+  as Hiera data for the `openvox_server` class; the return value's `hiera`
+  key carries them under `openvox_server`.
+- `openvox_tune::tune` notes when a server with OpenVox Server installed is
+  sized as a standalone server because no compiler is in the run, since it
+  only knows about the compilers it is given as targets.
+
 ## [0.1.0] - 2026-10-06
 
 ### Added

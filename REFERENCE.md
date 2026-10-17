@@ -366,7 +366,9 @@ Run it against the whole deployment. A host whose CA service is disabled
 in services.d/ca.cfg is a compiler and is sized like any server. When the
 run includes a compiler, the hosts whose CA is enabled are servers with
 compilers: their compilers compile the catalogs, so they get only 1 to 4
-instances. See `openvox_tune::recommend`.
+instances. See `openvox_tune::recommend`. The plan only knows about the
+compilers it is given as targets, so a server run on its own is sized as
+a standalone server, with a note saying so.
 
 The plan returns one hash per target with `target`, `role` (`server`,
 `compiler` or `server-with-compilers`), `cpus`, `memory-mb`,
@@ -378,8 +380,9 @@ undef when unset, `effective-max-active-instances`, `jvm-min-heap-mb`,
 heap per instance by the tuning guide's formula, `environment-timeout`, in
 seconds or `unlimited`, `max-requests-per-instance`, `max-queued-requests`
 and `multithreaded`, each undef when not known or not set), `matches-current`, and
-`hiera`, the same settings as Hiera data for the `openvox_tune` class and
-for theforeman-puppet, under `openvox_tune` and `theforeman-puppet`.
+`hiera`, the same settings as Hiera data for the `openvox_tune` class, the
+`openvox_server` class and theforeman-puppet, under `openvox_tune`,
+`openvox_server` and `theforeman-puppet`.
 
 #### Examples
 
@@ -405,6 +408,12 @@ bolt plan run openvox_tune::tune --targets servers use_current_memory_per_jruby=
 
 ```puppet
 bolt plan run openvox_tune::tune --targets puppet.example.com hiera=openvox_tune
+```
+
+##### Print Hiera data for servers managed by the openvox_server class
+
+```puppet
+bolt plan run openvox_tune::tune --targets puppet.example.com hiera=openvox_server
 ```
 
 ##### Print Hiera data for servers managed by theforeman-puppet
@@ -462,11 +471,12 @@ Default value: `false`
 
 ##### <a name="-openvox_tune--tune--hiera"></a>`hiera`
 
-Data type: `Optional[Enum['openvox_tune', 'theforeman-puppet']]`
+Data type: `Optional[Enum['openvox_tune', 'openvox_server', 'theforeman-puppet']]`
 
 Also print the settings as Hiera data: `openvox_tune` for the
-`openvox_tune` class, `theforeman-puppet` for theforeman-puppet's `puppet`
-class. Targets given the same values share one block, which lists them,
+`openvox_tune` class, `openvox_server` for the `openvox_server` class,
+`theforeman-puppet` for theforeman-puppet's `puppet` class. Targets given
+the same values share one block, which lists them,
 so that a fleet of compilers built alike can take its values from one
 level of the hierarchy, such as their role; the plan notes when the
 compilers in the run get different values.
